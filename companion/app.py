@@ -74,6 +74,7 @@ class State:
         self.messages = collections.deque(maxlen=8)
         self.rate = {}
         self.setup_needed = False    # no API key yet: the window shows the setup page
+        self.setup_requested = False # /pl wcl in WoW: show the page to change the key
         self._pages = {}             # batch -> {page number: Page}
         self.auto_copy = False       # off: only copy when the paste box in WoW asks
         self.copied_text = None
@@ -116,6 +117,7 @@ class State:
                 "rate": self.rate,
                 "messages": list(self.messages),
                 "setupNeeded": self.setup_needed,
+                "setupRequested": self.setup_requested,
                 "inWindow": window.available() and not HEADLESS,
                 "onTop": window.is_on_top(),
                 "settingsFile": wcl.ENV_FILE,
@@ -140,6 +142,13 @@ def queue_job(priority, job):
 
 
 def on_page(page):
+    if "S" in page.flags:
+        # /pl wcl in WoW: show the API key page.
+        with state.lock:
+            state.setup_requested = True
+        window.bring_to_front()
+        state.log("Showing the Warcraft Logs API key page")
+        return
     if "R" in page.flags:
         # The paste box in WoW was opened: copy the results we already have, right away.
         if copy_for_wow(force=True, restore=True):
@@ -268,6 +277,10 @@ class Handler(BaseHTTPRequestHandler):
                 ok, error = set_up_api_client(str(body.get("clientId", "")).strip(),
                                               str(body.get("secret", "")).strip())
                 reply = {"ok": ok, "error": error}
+            elif self.path == "/api/setup/close":
+                with state.lock:
+                    state.setup_requested = False
+                reply = {"ok": True}
             elif self.path == "/api/ontop":
                 window.set_on_top(bool(body["on"]))
                 reply = {"onTop": window.is_on_top()}
@@ -311,15 +324,16 @@ class Handler(BaseHTTPRequestHandler):
 
 _services_started = False
 _screenshots = None
+_lookup = None
 
 
 def start_services():
     """Logs in to Warcraft Logs and starts looking applicants up. Raises MissingCredentials
     if no API client is set up yet."""
-    global _services_started
+    global _services_started, _lookup
     if _services_started:
         return
-    lk = lookup.Lookup(log=state.log)
+    lk = _lookup = lookup.Lookup(log=state.log)
     state.rate = lk.refresh_rate()
     _services_started = True
     with state.lock:
@@ -342,9 +356,15 @@ def set_up_api_client(client_id, secret):
         return False, f"Couldn't reach Warcraft Logs: {e}"
     wcl.save_credentials(client_id, secret)
     try:
-        start_services()
+        if _services_started:
+            _lookup.client = wcl.Client(client_id, secret)  # a changed key, used from now on
+            state.rate = _lookup.refresh_rate(force=True)
+        else:
+            start_services()
     except wcl.WCLError as e:
         return False, str(e)
+    with state.lock:
+        state.setup_requested = False
     state.log("API client saved - PugLogs is ready")
     return True, None
 

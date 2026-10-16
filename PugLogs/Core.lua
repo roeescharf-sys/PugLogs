@@ -134,6 +134,7 @@ local function PrintHelp()
 	print("  /pl test  - take one test screenshot and report each step")
 	print("  /pl paste  - paste results from the PugLogs window into applicant tooltips")
 	print("  /pl filters  - choose which applicants are looked up (item level, rating, role, class, spec)")
+	print("  /pl wcl  - open the Warcraft Logs API key page in the PugLogs app")
 	print("  Or right-click an applicant or group member and choose \"Check logs\".")
 end
 

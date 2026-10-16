@@ -188,13 +188,14 @@ local function CanCapture()
 end
 
 local SendNow
-local copyQueued = false
+local queuedRequest -- a request flag waiting for the running capture to finish
 
 local function FinishCapture()
 	pages, pageIndex = nil, 0
-	if copyQueued then
-		copyQueued = false
-		C_Timer.After(0.2, function() ns.RequestCopy() end)
+	if queuedRequest then
+		local flag = queuedRequest
+		queuedRequest = nil
+		C_Timer.After(0.2, function() ns.SendRequest(flag) end)
 	end
 	verbose = false
 	if failsafeTimer then
@@ -329,11 +330,11 @@ function ns.OnFiltersChanged()
 	ScheduleSend()
 end
 
--- Asks the companion to put the results on the clipboard (used by the paste box).
--- It already has the applicant list, so this is one tiny code with flag "R" and no players.
-function ns.RequestCopy()
+-- Sends a request to the companion as one tiny code with no players:
+--   "R" = put the results on the clipboard (the paste box), "S" = show the API key page.
+function ns.SendRequest(flag)
 	if pages then
-		copyQueued = true -- sent right after the running capture
+		queuedRequest = flag -- sent right after the running capture
 		return
 	end
 	if not CanCapture() then
@@ -341,11 +342,15 @@ function ns.RequestCopy()
 		return
 	end
 	batchCounter = batchCounter + 1
-	pages = { table.concat({ "PL2", "copy-" .. GetServerTime() .. "-" .. batchCounter, 1, 1, ns.REGION, 0, 0, "", "R" }, "\t") }
+	pages = { table.concat({ "PL2", "req-" .. GetServerTime() .. "-" .. batchCounter, 1, 1, ns.REGION, 0, 0, "", flag }, "\t") }
 	pageIndex = 0
 	savedQuality = GetCVar("screenshotQuality")
 	SetCVar("screenshotQuality", "10")
 	CaptureNextPage()
+end
+
+function ns.RequestCopy()
+	ns.SendRequest("R")
 end
 
 function ns.HandleLiveSlash(msg)
@@ -358,6 +363,10 @@ function ns.HandleLiveSlash(msg)
 		return true
 	elseif msg == "send" then
 		SendNow(true)
+		return true
+	elseif msg == "wcl" or msg == "key" or msg == "setup" then
+		ns.SendRequest("S")
+		ns.Print("Opening the Warcraft Logs API key page in PugLogs. If nothing opens, start the PugLogs app first.")
 		return true
 	elseif msg == "test" then
 		if pages then

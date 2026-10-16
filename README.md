@@ -173,6 +173,7 @@ the same key level.
 |---|---|
 | `/pl` | List the commands |
 | `/pl filters` | Open the filter settings |
+| `/pl wcl` | Open the Warcraft Logs API key page in the PugLogs app (to enter or change your key) |
 | `/pl paste` | Open the paste box (also: key binding in Options → Keybindings → AddOns) |
 | `/pl Name-Realm [dungeon]` | Link to a player's logs, e.g. `/pl Anna-Kazzak voidscar` |
 | `/pl send` | Send your current applicants to the companion again |

@@ -16,6 +16,7 @@ except ImportError:  # running from source without pywebview
 
 SETTINGS_FILE = os.path.expanduser("~/.config/puglogs/settings.json")
 _window = None
+_url = None
 
 
 def _load():
@@ -67,7 +68,8 @@ _GUI = "edgechromium" if sys.platform == "win32" else None
 def show(url, log=print):
     """Opens the PugLogs window and returns True when the user closes it. If the window
     can't be shown, opens the page in the default web browser instead and returns False."""
-    global _window
+    global _window, _url
+    _url = url
     if webview is None:
         webbrowser.open(url)
         return False
@@ -91,6 +93,22 @@ def show(url, log=print):
         webbrowser.open(url)
         return False
     return True
+
+
+def bring_to_front():
+    """Shows the PugLogs window above other windows (or the page in the browser)."""
+    if _window is None:
+        if _url:
+            webbrowser.open(_url)
+        return
+    try:
+        _window.restore()
+        _window.show()
+        if not is_on_top():  # briefly on top so it appears over WoW
+            _window.on_top = True
+            threading.Timer(3, lambda: setattr(_window, "on_top", False)).start()
+    except Exception:
+        pass
 
 
 def _native_message(title, message):

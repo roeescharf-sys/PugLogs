@@ -3,7 +3,7 @@
 ## Notes: Right-click a Mythic+ applicant or group member to get their Warcraft Logs page for your dungeon.
 ## Category: Dungeons & Raids
 ## Author: Roee
-## Version: 0.6.1
+## Version: 0.6.2
 ## SavedVariables: PugLogsDB
 
 Libs\qrencode.lua

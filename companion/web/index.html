@@ -70,7 +70,7 @@
 </header>
 <main>
   <section id="setup" hidden>
-    <h2>Welcome to PugLogs</h2>
+    <h2 id="setupTitle">Welcome to PugLogs</h2>
     <p>PugLogs reads your applicants' runs from Warcraft Logs, which needs a free API client of your own
       (it takes a minute, and it stays on this computer).</p>
     <ol>
@@ -82,7 +82,8 @@
     <form id="setupForm">
       <label>Client ID <input id="clientId" autocomplete="off" spellcheck="false" required></label>
       <label>Client Secret <input id="secret" type="password" autocomplete="off" required></label>
-      <button class="btn" type="submit">Save and start</button>
+      <span><button class="btn" type="submit">Save and start</button>
+        <button class="btn" type="button" id="setupClose" hidden>Cancel</button></span>
       <div id="setupMsg" class="meta"></div>
     </form>
     <p class="meta">Saved in <code id="settingsFile"></code>. Never share your Client Secret.</p>
@@ -137,10 +138,13 @@ async function refresh() {
   let s;
   try { s = await (await fetch("/api/state", {cache: "no-store"})).json(); }
   catch { document.getElementById("listing").textContent = "Companion not running"; return; }
-  document.getElementById("setup").hidden = !s.setupNeeded;
-  document.querySelector(".copy").hidden = !!s.setupNeeded;
+  const showSetup = s.setupNeeded || s.setupRequested;
+  document.getElementById("setup").hidden = !showSetup;
+  document.getElementById("setupClose").hidden = !!s.setupNeeded;
+  document.getElementById("setupTitle").textContent = s.setupNeeded ? "Welcome to PugLogs" : "Change your Warcraft Logs API client";
+  document.querySelector(".copy").hidden = !!showSetup;
   document.getElementById("settingsFile").textContent = s.settingsFile || "";
-  if (s.setupNeeded) {
+  if (showSetup) {
     document.getElementById("listing").textContent = "Setup";
     document.getElementById("apps").innerHTML = "";
     return;
@@ -172,6 +176,10 @@ document.getElementById("setupForm").addEventListener("submit", async e => {
     clientId: document.getElementById("clientId").value, secret: document.getElementById("secret").value }) })).json();
   msg.textContent = r.ok ? "Saved! PugLogs is ready - list a key in WoW." : r.error;
   msg.className = r.ok ? "timed" : "error";
+  refresh();
+});
+document.getElementById("setupClose").addEventListener("click", async () => {
+  await fetch("/api/setup/close", { method: "POST", body: "{}" });
   refresh();
 });
 document.getElementById("copyBtn").addEventListener("click", async () => {
