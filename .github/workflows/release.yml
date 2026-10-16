@@ -42,16 +42,22 @@ jobs:
         working-directory: companion
         run: |
           mkdir -p "$RUNNER_TEMP/home" "$RUNNER_TEMP/wow/Interface/AddOns"
-          exe=dist/PugLogs/PugLogs
+          exe=dist/PugLogs.app/Contents/MacOS/PugLogs
           [ -f dist/PugLogs/PugLogs.exe ] && exe=dist/PugLogs/PugLogs.exe
+          # --no-window: server only (CI machines have no screen); the app logs to a file
           HOME="$RUNNER_TEMP/home" USERPROFILE="$RUNNER_TEMP/home" PUGLOGS_WOW_DIR="$RUNNER_TEMP/wow" \
-            PUGLOGS_PORT=47699 "$exe" --no-browser > "$RUNNER_TEMP/log.txt" 2>&1 &
+            PUGLOGS_PORT=47699 "$exe" --no-window &
           for i in $(seq 1 60); do
             curl -sf http://127.0.0.1:47699/api/state > "$RUNNER_TEMP/state.json" && break
             sleep 2
           done
-          cat "$RUNNER_TEMP/log.txt"
+          cat "$RUNNER_TEMP/home/.config/puglogs/puglogs.log"
           grep -q '"setupNeeded": true' "$RUNNER_TEMP/state.json"
+          # The window engine (WebView2 on Windows, WebKit on macOS) must load from the build.
+          rm -f "$RUNNER_TEMP/home/.config/puglogs/puglogs.log"
+          HOME="$RUNNER_TEMP/home" USERPROFILE="$RUNNER_TEMP/home" "$exe" --selftest
+          cat "$RUNNER_TEMP/home/.config/puglogs/puglogs.log"
+          grep -q "window engine OK" "$RUNNER_TEMP/home/.config/puglogs/puglogs.log"
           test -f "$RUNNER_TEMP/wow/Interface/AddOns/PugLogs/PugLogs.toc"
           echo "Smoke test passed"
 

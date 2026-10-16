@@ -22,7 +22,7 @@ applicant. PugLogs does that for you:
 
 ## What you see
 
-**In the live window** (a browser page on your computer, next to WoW):
+**In the PugLogs window** (an app window next to WoW; tick "keep on top" to float it over the game):
 
 ```
 Murder Row +20 · 4 filtered out                          API: 41/720 points this hour
@@ -93,7 +93,8 @@ uses it to identify itself with an API client (a "key"). It is **free** and take
 
 1. Log in at [warcraftlogs.com](https://www.warcraftlogs.com) and open
    [API Clients](https://www.warcraftlogs.com/api/clients/) → **Create Client**.
-2. Name: anything (e.g. `PugLogs`). Redirect URL: `http://localhost`. Leave "Public Client" unchecked.
+2. Name: anything (e.g. `PugLogs`). Redirect URL: type `http://localhost` (the form requires
+   one; PugLogs doesn't use it). Leave "Public Client" unchecked.
 3. Paste the **Client ID** and **Client Secret** into the PugLogs setup page.
 
 ---
@@ -122,7 +123,7 @@ Nothing else to install: the download includes everything it needs (only running
      (or right-click → Open). The first start can take up to half a minute.
 
    These warnings appear because PugLogs isn't signed with a paid developer certificate.
-3. PugLogs **installs the WoW addon for you** and opens its window in your browser, which walks
+3. PugLogs **installs the WoW addon for you** and opens its window, which walks
    you through creating your free Warcraft Logs API client and pasting it in.
 4. In WoW, type `/reload`.
 
@@ -187,7 +188,9 @@ the same key level.
   `/pl test` in game. If files pile up in `_retail_/Screenshots`, the companion isn't reading them
   (check it's watching the right folder - it prints the path when it starts).
 - **"Hourly API limit reached"**: lookups resume automatically when the hour resets.
-- **Port 47615 is in use**: PugLogs is probably already running in another terminal window.
+- **"PugLogs is already running"**: it's already open - look for its window (or quit it first).
+- **Something else went wrong**: the log is in `~/.config/puglogs/puglogs.log`
+  (Windows: `C:\Users\<you>\.config\puglogs\puglogs.log`).
 - **"That was your own clipboard"** in the paste box: you pasted before the results arrived; press
   Cmd+V / Ctrl+V again.
 
@@ -196,8 +199,8 @@ the same key level.
 ## Privacy
 
 - Your API key and the lookup cache live only in `~/.config/puglogs/` on your computer.
-- The companion talks only to Warcraft Logs (the names and realms it looks up) and to your own
-  browser on `localhost`. Nothing else is sent anywhere.
+- The companion talks only to Warcraft Logs (the names and realms it looks up). Its window talks
+  to it over a connection that only works on your own computer. Nothing else is sent anywhere.
 - PugLogs screenshots are deleted as soon as they are read. Old ones left from times the companion
   wasn't running are deleted (not used) on the next start.
 

@@ -18,6 +18,7 @@
   .copy { margin-left: auto; display: flex; gap: 10px; align-items: center; }
   .copy[hidden] { display: none; }
   .copy label { color: var(--dim); cursor: pointer; }
+  .copy label[hidden] { display: none; }
   main { padding: 12px 16px 40px; display: grid; gap: 10px; }
   .app { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .app.group { border-color: #4a5160; }
@@ -64,6 +65,7 @@
     <button id="copyBtn" class="btn" title="Put the results on the clipboard, then press Cmd+V in WoW's PugLogs paste box">Copy for WoW</button>
     <label title="Update the clipboard automatically whenever results change"><input type="checkbox" id="autoCopy"> auto-copy</label>
     <span id="copied" class="meta"></span>
+    <label id="onTopLabel" hidden title="Keep the PugLogs window above WoW (play WoW in windowed mode)"><input type="checkbox" id="onTop"> keep on top</label>
   </span>
 </header>
 <main>
@@ -74,7 +76,7 @@
     <ol>
       <li>Log in at <a href="https://www.warcraftlogs.com" target="_blank" rel="noopener">warcraftlogs.com</a> and open
         <a href="https://www.warcraftlogs.com/api/clients/" target="_blank" rel="noopener">API Clients</a> &rarr; <b>Create Client</b>.</li>
-      <li>Name: <code>PugLogs</code> &middot; Redirect URL: <code>http://localhost</code> &middot; leave "Public Client" unchecked &middot; Create.</li>
+      <li>Name: <code>PugLogs</code> &middot; Redirect URL: type <code>http://localhost</code> (the form requires one; it isn't used) &middot; leave "Public Client" unchecked &middot; Create.</li>
       <li>Copy the two values it shows into the boxes below.</li>
     </ol>
     <form id="setupForm">
@@ -155,6 +157,8 @@ async function refresh() {
     `<div class="app ${a.members.length > 1 ? "group" : ""}">${a.members.map(memberHtml).join("")}</div>`).join("");
   document.getElementById("empty").hidden = !(l && s.applications.length === 0);
   document.getElementById("autoCopy").checked = !!s.autoCopy;
+  document.getElementById("onTopLabel").hidden = !s.inWindow;
+  document.getElementById("onTop").checked = !!s.onTop;
   document.getElementById("copied").textContent = s.copiedAt ? `copied ${new Date(s.copiedAt*1000).toLocaleTimeString()}` : "";
   document.getElementById("messages").innerHTML = s.messages.map(m =>
     `<div>${new Date(m.at*1000).toLocaleTimeString()} ${esc(m.text)}</div>`).join("");
@@ -172,6 +176,10 @@ document.getElementById("setupForm").addEventListener("submit", async e => {
 });
 document.getElementById("copyBtn").addEventListener("click", async () => {
   await fetch("/api/copy", { method: "POST", body: "{}" });
+  refresh();
+});
+document.getElementById("onTop").addEventListener("change", async e => {
+  await fetch("/api/ontop", { method: "POST", body: JSON.stringify({ on: e.target.checked }) });
   refresh();
 });
 document.getElementById("autoCopy").addEventListener("change", async e => {

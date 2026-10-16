@@ -3,11 +3,13 @@
     pip install -r requirements.txt -r requirements-build.txt
     python build.py
 
-Produces dist/PugLogs-<system>.zip containing a PugLogs folder with the PugLogs program,
-the live window files and the WoW addon (installed into WoW on first start).
+Produces dist/PugLogs-<system>.zip: a PugLogs folder with the PugLogs app (PugLogs.exe on
+Windows, PugLogs.app on macOS), which includes the window files and the WoW addon
+(installed into WoW on first start).
 """
 import os
 import shutil
+import subprocess
 import sys
 
 import PyInstaller.__main__
@@ -25,7 +27,8 @@ def main():
         os.path.join(HERE, "app.py"),
         "--name", "PugLogs",
         "--onedir",
-        "--console",          # shows the log; close the window (or Ctrl+C) to stop
+        "--windowed",         # a normal app: no console window (log in ~/.config/puglogs)
+        "--osx-bundle-identifier", "io.github.roeescharf-sys.puglogs",
         "--noconfirm",
         "--clean",
         "--distpath", os.path.join(HERE, "dist"),
@@ -34,10 +37,27 @@ def main():
         "--add-data", data(os.path.join(HERE, "web"), "web"),
         "--add-data", data(os.path.join(ROOT, "PugLogs"), "PugLogs"),
     ])
-    folder = os.path.join(HERE, "dist", "PugLogs")
-    shutil.copy(os.path.join(HERE, "READ ME FIRST.txt"), folder)
-    archive = shutil.make_archive(os.path.join(HERE, "dist", f"PugLogs-{SYSTEM}"), "zip",
-                                  os.path.join(HERE, "dist"), "PugLogs")
+    dist = os.path.join(HERE, "dist")
+    if sys.platform == "darwin":
+        # Ship only the .app (PyInstaller also leaves a plain folder next to it).
+        stage = os.path.join(HERE, "build", "stage")
+        shutil.rmtree(stage, ignore_errors=True)
+        os.makedirs(os.path.join(stage, "PugLogs"))
+        # symlinks=True keeps the app bundle's internal links (and its signature) intact
+        shutil.copytree(os.path.join(dist, "PugLogs.app"), os.path.join(stage, "PugLogs", "PugLogs.app"),
+                        symlinks=True)
+        root = stage
+    else:
+        root = dist
+    shutil.copy(os.path.join(HERE, "READ ME FIRST.txt"), os.path.join(root, "PugLogs"))
+    archive = os.path.join(dist, f"PugLogs-{SYSTEM}.zip")
+    if os.path.exists(archive):
+        os.remove(archive)
+    if sys.platform == "darwin":
+        # ditto keeps symlinks and permissions inside the .app (Python's zip doesn't).
+        subprocess.run(["ditto", "-c", "-k", "--norsrc", "--keepParent", os.path.join(root, "PugLogs"), archive], check=True)
+    else:
+        shutil.make_archive(archive[:-4], "zip", root, "PugLogs")
     print("Built", archive)
 
 

@@ -1,5 +1,5 @@
 """PugLogs companion: reads applicants from the addon's QR screenshots, looks them up on
-Warcraft Logs and shows them in a browser window at http://localhost:47615.
+Warcraft Logs and shows them in the PugLogs window.
 
 Run with ./run.sh or run.bat (they set up everything on first run), or as the packaged
 PugLogs app. On first start it installs the addon and shows a setup page for the API key.
@@ -12,7 +12,6 @@ import queue
 import sys
 import threading
 import time
-import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import export
@@ -20,6 +19,7 @@ import inbox
 import installer
 import lookup
 import wcl
+import window
 
 PORT = int(os.environ.get("PUGLOGS_PORT", "47615"))
 
@@ -116,6 +116,8 @@ class State:
                 "rate": self.rate,
                 "messages": list(self.messages),
                 "setupNeeded": self.setup_needed,
+                "inWindow": window.available() and not HEADLESS,
+                "onTop": window.is_on_top(),
                 "settingsFile": wcl.ENV_FILE,
                 "autoCopy": self.auto_copy,
                 "copiedAt": self.copied_at,
@@ -266,6 +268,9 @@ class Handler(BaseHTTPRequestHandler):
                 ok, error = set_up_api_client(str(body.get("clientId", "")).strip(),
                                               str(body.get("secret", "")).strip())
                 reply = {"ok": ok, "error": error}
+            elif self.path == "/api/ontop":
+                window.set_on_top(bool(body["on"]))
+                reply = {"onTop": window.is_on_top()}
             elif self.path == "/api/autocopy":
                 with state.lock:
                     state.auto_copy = bool(body["on"])
@@ -344,6 +349,10 @@ def set_up_api_client(client_id, secret):
     return True, None
 
 
+HEADLESS = "--no-window" in sys.argv or "--no-browser" in sys.argv  # server only (tests)
+LOG_FILE = os.path.expanduser("~/.config/puglogs/puglogs.log")
+
+
 def main():
     global _screenshots
     wow_dir = find_wow_dir()
@@ -352,8 +361,9 @@ def main():
     try:
         server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     except OSError:
-        sys.exit(f"Port {PORT} is in use (is PugLogs already running?). "
-                 f"Close the other program or set PUGLOGS_PORT to another number.")
+        sys.exit("PugLogs is already running - look for its window.\n\n"
+                 f"(If it isn't, another program is using port {PORT}; "
+                 "set PUGLOGS_PORT to another number.)")
     try:
         start_services()
     except wcl.MissingCredentials:
@@ -364,24 +374,32 @@ def main():
         with state.lock:
             state.setup_needed = True
         state.log(f"Warcraft Logs login failed ({e}) - check your API client in the PugLogs window")
-    url = f"http://localhost:{PORT}"
-    print(f"PugLogs window: {url}  (Ctrl+C to stop)", flush=True)
-    if "--no-browser" not in sys.argv:
-        webbrowser.open(url)
+    url = f"http://127.0.0.1:{PORT}"
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    print("PugLogs is running. Close its window to stop it.", flush=True)
+    if not HEADLESS and window.show(url):
+        return  # the window was closed: quit
+    if not HEADLESS:
+        print(f"Opened in your browser (install pywebview for the app window): {url}", flush=True)
     try:
-        server.serve_forever()
+        while True:
+            time.sleep(3600)
     except KeyboardInterrupt:
         pass
 
 
 def run():
+    if getattr(sys, "frozen", False):
+        # The packaged app has no console: keep a log file for troubleshooting.
+        os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+        sys.stdout = sys.stderr = open(LOG_FILE, "w", encoding="utf-8", buffering=1)
+    if "--selftest" in sys.argv:
+        print("window engine OK:", window.self_test(), flush=True)
+        return
     try:
         main()
     except SystemExit as e:
-        # A packaged app's window closes immediately; keep the message readable.
-        if getattr(sys, "frozen", False) and e.code not in (None, 0):
-            print(e.code if isinstance(e.code, str) else "", flush=True)
-            input("Press Enter to close.")
+        if isinstance(e.code, str) and not HEADLESS and window.show_error(e.code):
             sys.exit(1)
         raise
 
