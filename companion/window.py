@@ -3,9 +3,10 @@
 Uses pywebview, which draws with the system's own web engine (Edge WebView2 on Windows,
 WebKit on macOS). Falls back to the default browser if pywebview isn't available.
 """
-import html
 import json
 import os
+import sys
+import threading
 import webbrowser
 
 try:
@@ -34,7 +35,6 @@ def _save(settings):
 def self_test():
     """Loads this system's window engine without opening a window (for automated build checks)."""
     import importlib
-    import sys
     backend = {"win32": "webview.platforms.edgechromium", "darwin": "webview.platforms.cocoa"}.get(sys.platform)
     if webview is None:
         raise RuntimeError("pywebview is missing")
@@ -59,28 +59,57 @@ def set_on_top(on):
         _window.on_top = bool(on)
 
 
-def show(url):
-    """Opens the PugLogs window and returns when the user closes it."""
+# Windows: only the modern Edge WebView2 engine. pywebview would otherwise fall back to the
+# old Internet Explorer engine, which can't run the PugLogs page (an empty window).
+_GUI = "edgechromium" if sys.platform == "win32" else None
+
+
+def show(url, log=print):
+    """Opens the PugLogs window and returns True when the user closes it. If the window
+    can't be shown, opens the page in the default web browser instead and returns False."""
     global _window
     if webview is None:
         webbrowser.open(url)
         return False
-    _window = webview.create_window(
-        "PugLogs", url, width=980, height=760, min_size=(420, 320),
-        on_top=is_on_top(), background_color="#111317", text_select=True,
-    )
-    webview.start()
+    shown = threading.Event()
+    try:
+        _window = webview.create_window(
+            "PugLogs", url, width=980, height=760, min_size=(420, 320),
+            on_top=is_on_top(), background_color="#111317", text_select=True,
+        )
+        _window.events.shown += shown.set
+        webview.start(gui=_GUI)
+    except Exception as e:
+        log(f"The PugLogs window couldn't open ({type(e).__name__}: {e}) - "
+            "opening it in your web browser instead.")
+        _window = None
+        webbrowser.open(url)
+        return False
+    if not shown.is_set():
+        log("The PugLogs window never appeared - opening it in your web browser instead.")
+        _window = None
+        webbrowser.open(url)
+        return False
     return True
+
+
+def _native_message(title, message):
+    """A plain system dialog, which works even when the window engine doesn't."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(None, message, title, 0x10)
+            return True
+        if sys.platform == "darwin":
+            import subprocess
+            script = 'display dialog (item 1 of argv) with title (item 2 of argv) buttons {"OK"} with icon stop'
+            subprocess.run(["osascript", "-e", f"on run argv\n{script}\nend run", message, title], check=False)
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def show_error(message):
-    """Shows a fatal startup problem in a small window (the packaged app has no console)."""
-    if webview is None:
-        return False
-    page = f"""<!doctype html><html><body style="background:#111317;color:#e6e6e6;
-        font:14px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:20px">
-        <h2 style="color:#e0624f;margin-top:0">PugLogs can't start</h2>
-        <p style="white-space:pre-wrap;line-height:1.5">{html.escape(message)}</p></body></html>"""
-    webview.create_window("PugLogs", html=page, width=560, height=260)
-    webview.start()
-    return True
+    """Shows a fatal startup problem (the packaged app has no console)."""
+    return _native_message("PugLogs can't start", message)

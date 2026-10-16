@@ -377,10 +377,11 @@ def main():
     url = f"http://127.0.0.1:{PORT}"
     threading.Thread(target=server.serve_forever, daemon=True).start()
     print("PugLogs is running. Close its window to stop it.", flush=True)
-    if not HEADLESS and window.show(url):
+    if not HEADLESS and window.show(url, log=state.log):
         return  # the window was closed: quit
     if not HEADLESS:
-        print(f"Opened in your browser (install pywebview for the app window): {url}", flush=True)
+        state.log("PugLogs is running in your web browser. To stop it, close this program "
+                  "(Windows: Task Manager > PugLogs).")
     try:
         while True:
             time.sleep(3600)
