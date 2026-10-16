@@ -1,0 +1,323 @@
+"""PugLogs companion: reads applicants from the addon's QR screenshots, looks them up on
+Warcraft Logs and shows them in a browser window at http://localhost:47615.
+
+Run with ./run.sh (it sets up everything on first run).
+"""
+import collections
+import itertools
+import json
+import os
+import queue
+import sys
+import threading
+import time
+import webbrowser
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import export
+import inbox
+import lookup
+import wcl
+
+PORT = int(os.environ.get("PUGLOGS_PORT", "47615"))
+
+
+def find_wow_dir():
+    """The WoW _retail_ folder: from PUGLOGS_WOW_DIR or WOW_DIR in the settings file,
+    the Battle.net install entry in the Windows registry, or the usual install locations."""
+    configured = os.environ.get("PUGLOGS_WOW_DIR") or wcl.read_config().get("WOW_DIR")
+    if configured:
+        return configured
+    candidates = []
+    if sys.platform == "win32":
+        try:
+            import winreg
+            for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+                for key in (r"SOFTWARE\WOW6432Node\Blizzard Entertainment\World of Warcraft",
+                            r"SOFTWARE\Blizzard Entertainment\World of Warcraft"):
+                    try:
+                        with winreg.OpenKey(root, key) as k:
+                            candidates.append(winreg.QueryValueEx(k, "InstallPath")[0])
+                    except OSError:
+                        pass
+        except ImportError:
+            pass
+        for drive in ("C:", "D:", "E:"):
+            for folder in ("Program Files (x86)", "Program Files", "Games", ""):
+                candidates.append(os.path.join(drive + "\\", folder, "World of Warcraft", "_retail_"))
+    else:
+        candidates.append("/Applications/World of Warcraft/_retail_")
+    for path in candidates:
+        path = path.rstrip("\\/")
+        if not path.endswith("_retail_") and os.path.isdir(os.path.join(path, "_retail_")):
+            path = os.path.join(path, "_retail_")
+        if os.path.isdir(os.path.join(path, "Interface")):
+            return path
+    sys.exit("Couldn't find your World of Warcraft folder. Add a line like\n"
+             "  WOW_DIR=C:\\Program Files (x86)\\World of Warcraft\\_retail_\n"
+             f"to {wcl.ENV_FILE} and start PugLogs again.")
+WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
+SEASON_ZONE_ID = 55
+
+
+class State:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.listing = None          # {"dungeon", "key", "encounterId", "region", "filtered"}
+        self.members = []            # applicant members in Group Finder order
+        self.results = {}            # "player:encounter" -> {"status", "runs", "error"}
+        self.updated_at = None
+        self.messages = collections.deque(maxlen=8)
+        self.rate = {}
+        self._pages = {}             # batch -> {page number: Page}
+        self.auto_copy = False       # off: only copy when the paste box in WoW asks
+        self.copied_text = None
+        self.copied_at = None
+        self.waiting = {}            # rkey -> lookup job, retried when the hourly limit resets
+
+    def log(self, text):
+        print(text, flush=True)
+        with self.lock:
+            self.messages.appendleft({"at": time.time(), "text": text})
+
+    def add_page(self, page):
+        """Collects the pages of one batch; returns the members once all pages are in."""
+        pages = self._pages.setdefault(page.batch, {})
+        pages[page.page] = page
+        if len(pages) < max(page.pages, 1):
+            return None
+        self._pages = {}
+        members = [m for n in sorted(pages) for m in pages[n].members]
+        return page, members
+
+    def snapshot(self):
+        with self.lock:
+            applications = collections.OrderedDict()
+            for m in self.members:
+                lst = self.listing or {}
+                rkey = result_key(m, lst.get("encounterId"), lst.get("key"))
+                result = self.results.get(rkey) or {"status": "pending"}
+                applications.setdefault(m.application_id, []).append({
+                    "name": m.name, "realm": m.realm_slug, "class": m.class_file, "spec": m.spec,
+                    "role": m.role, "itemLevel": m.item_level, "score": m.score, "resultKey": rkey,
+                    "profileUrl": lookup.character_url(lst.get("region", "eu"), m.realm_slug, m.name,
+                                                       SEASON_ZONE_ID, lst.get("encounterId")),
+                    **result,
+                })
+            return {
+                "listing": self.listing,
+                "updatedAt": self.updated_at,
+                "applications": [{"id": k, "members": v} for k, v in applications.items()],
+                "rate": self.rate,
+                "messages": list(self.messages),
+                "autoCopy": self.auto_copy,
+                "copiedAt": self.copied_at,
+            }
+
+
+def result_key(member, encounter_id, key_level):
+    # The featured run depends on your key level, so it is part of the key.
+    return f"{member.key}:{encounter_id}:{key_level}"
+
+
+state = State()
+# (priority, order, job), processed in order.
+work = queue.PriorityQueue()
+_order = itertools.count()
+
+
+def queue_job(priority, job):
+    work.put((priority, next(_order), job))
+
+
+def on_page(page):
+    if "R" in page.flags:
+        # The paste box in WoW was opened: copy the results we already have, right away.
+        if copy_for_wow(force=True, restore=True):
+            state.log("Results copied for WoW - press Cmd+V in the paste box")
+        else:
+            state.log("Paste box opened, but there are no results to copy yet")
+        return
+    done = state.add_page(page)
+    if not done:
+        return
+    page, members = done
+    with state.lock:
+        state.listing = {"dungeon": page.dungeon, "key": page.key_level,
+                         "encounterId": page.encounter_id, "region": page.region,
+                         "filtered": page.filtered}
+        state.members = members
+        state.updated_at = time.time()
+        new = [m for m in members if result_key(m, page.encounter_id, page.key_level) not in state.results]
+    state.log(f"{len(members)} applicant(s) for {page.dungeon or 'no listing'}"
+              + (f" +{page.key_level}" if page.key_level else "")
+              + (f" ({page.filtered} filtered out)" if page.filtered else ""))
+    for m in new:
+        rkey = result_key(m, page.encounter_id, page.key_level)
+        with state.lock:
+            state.results[rkey] = {"status": "pending"}
+        queue_job(1, ("lookup", rkey, m, page.region, page.encounter_id, page.key_level))
+    if not new and work.empty():
+        copy_for_wow()
+
+
+def copy_for_wow(force=False, restore=False):
+    """Puts the paste text for WoW on the clipboard when results changed (or when forced).
+    With restore, your previous clipboard text is put back a little later."""
+    with state.lock:
+        if not (state.auto_copy or force):
+            return False
+        text = export.build(state.listing, state.members, state.results, result_key)
+        if not text or (text == state.copied_text and not force):
+            return False
+    try:
+        (export.copy_then_restore if restore else export.copy)(text)
+    except Exception as e:
+        state.log(f"Could not copy to clipboard: {e}")
+        return False
+    with state.lock:
+        state.copied_text, state.copied_at = text, time.time()
+    return True
+
+
+def describe_error(e):
+    if isinstance(e, lookup.BudgetError):
+        return "Hourly API limit nearly used up - try again later"
+    if isinstance(e, wcl.WCLError):
+        return str(e)[:200]
+    return f"{type(e).__name__}: {e}"[:200]
+
+
+
+
+
+
+def do_lookup(lk, rkey, member, region, encounter_id, key_level):
+    with state.lock:
+        state.results[rkey] = {"status": "loading"}
+    try:
+        found = lk.look_up(member, region, encounter_id, key_level)
+        result = {"status": "nodata"} if not found else {"status": "done", "playerName": member.name, **found}
+    except (lookup.BudgetError, wcl.RateLimited) as e:
+        # Out of API points (or briefly refused): wait, then look them up automatically.
+        wait = 60 if isinstance(e, wcl.RateLimited) else (lk.estimated_rate().get("pointsResetIn") or 300) + 5
+        retry_at = time.time() + wait
+        result = {"status": "waiting", "retryAt": retry_at}
+        with state.lock:
+            state.waiting[rkey] = (retry_at, ("lookup", rkey, member, region, encounter_id, key_level))
+    except Exception as e:
+        result = {"status": "error", "error": describe_error(e)}
+    with state.lock:
+        state.results[rkey] = result
+
+
+def retry_waiting():
+    """Re-queues lookups that were paused by the hourly API limit once it has reset."""
+    while True:
+        time.sleep(5)
+        now = time.time()
+        with state.lock:
+            due = [(k, job) for k, (at, job) in state.waiting.items() if at <= now]
+            current = {result_key(m, (state.listing or {}).get("encounterId"), (state.listing or {}).get("key"))
+                       for m in state.members}
+            for k, _ in due:
+                del state.waiting[k]
+                if k in current:
+                    state.results[k] = {"status": "pending"}
+        for k, job in due:
+            if k in current:  # skip applicants who are gone
+                queue_job(1, job)
+
+
+
+
+def worker(lk):
+    while True:
+        _, _, job = work.get()
+        kind, args = job[0], job[1:]
+        if kind == "lookup":
+            if not args[3]:  # no dungeon (listing ended)
+                continue
+            do_lookup(lk, *args)
+        # Copy once the queue is empty, so the clipboard isn't rewritten for every player.
+        if work.empty():
+            copy_for_wow()
+        try:
+            state.rate = lk.refresh_rate()
+            lk.cache.save()
+        except Exception as e:
+            state.log(f"Could not save cache: {e}")
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        try:
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            if self.path == "/api/copy":
+                reply = {"copied": copy_for_wow(force=True)}
+            elif self.path == "/api/autocopy":
+                with state.lock:
+                    state.auto_copy = bool(body["on"])
+                if state.auto_copy:
+                    copy_for_wow(force=True)
+                reply = {"autoCopy": state.auto_copy}
+            else:
+                self.send_error(404)
+                return
+        except (ValueError, KeyError):
+            self.send_error(400)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(reply).encode())
+
+    def do_GET(self):
+        if self.path == "/api/state":
+            body = json.dumps(state.snapshot()).encode()
+            ctype = "application/json"
+        elif self.path in ("/", "/index.html"):
+            with open(os.path.join(WEB_DIR, "index.html"), "rb") as f:
+                body = f.read()
+            ctype = "text/html; charset=utf-8"
+        else:
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+def main():
+    screenshots = os.path.join(find_wow_dir(), "Screenshots")
+    try:
+        lk = lookup.Lookup(log=state.log)  # exits with instructions if the API key is missing
+        state.rate = lk.refresh_rate()
+    except wcl.WCLError as e:
+        sys.exit(f"Warcraft Logs login failed: {e}")
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    except OSError:
+        sys.exit(f"Port {PORT} is in use (is PugLogs already running?). "
+                 f"Close the other program or set PUGLOGS_PORT to another number.")
+    threading.Thread(target=worker, args=(lk,), daemon=True).start()
+    threading.Thread(target=retry_waiting, daemon=True).start()
+    inbox.Inbox(screenshots, on_page, state.log).start()
+    url = f"http://localhost:{PORT}"
+    state.log(f"Watching {screenshots}")
+    print(f"PugLogs window: {url}  (Ctrl+C to stop)", flush=True)
+    if "--no-browser" not in sys.argv:
+        webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()

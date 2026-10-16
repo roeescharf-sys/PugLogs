@@ -1,0 +1,17 @@
+## Interface: 120105
+## Title: PugLogs
+## Notes: Right-click a Mythic+ applicant or group member to get their Warcraft Logs page for your dungeon.
+## Category: Dungeons & Raids
+## Author: Roee
+## Version: 0.4.0
+## SavedVariables: PugLogsDB
+
+Libs\qrencode.lua
+Data\Season.lua
+Data\RealmsEU.lua
+Core.lua
+CopyPopup.lua
+Menu.lua
+Filters.lua
+Transport.lua
+Live.lua

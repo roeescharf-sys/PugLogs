@@ -1,0 +1,174 @@
+local _, ns = ...
+
+ns.REGION = "eu"
+
+-- Link templates. If Warcraft Logs changes its URL format, only these need updating.
+local CHARACTER_URL = "https://www.warcraftlogs.com/character/%s/%s/%s"
+local DUNGEON_QUERY = "?zone=%d&boss=%d"
+
+local PREFIX = "|cff00ccffPugLogs:|r "
+
+function ns.Print(msg)
+	print(PREFIX .. msg)
+end
+
+-- Since Midnight, some API values can be "secret" (unreadable by addons), e.g. in combat.
+function ns.IsSecret(value)
+	return issecretvalue ~= nil and issecretvalue(value)
+end
+
+-- Dungeon lookups ------------------------------------------------------------
+
+local byActivityID, byChallengeMapID, byMapID = {}, {}, {}
+for _, dungeon in ipairs(ns.Season.dungeons) do
+	for _, activityID in ipairs(dungeon.activityIDs) do
+		byActivityID[activityID] = dungeon
+	end
+	byChallengeMapID[dungeon.challengeMapID] = dungeon
+	byMapID[dungeon.mapID] = dungeon
+end
+
+function ns.FindDungeonByName(text)
+	text = text:lower()
+	for _, dungeon in ipairs(ns.Season.dungeons) do
+		if dungeon.name:lower():find(text, 1, true) then
+			return dungeon
+		end
+	end
+end
+
+-- The dungeon of your own active Group Finder listing, if any.
+function ns.GetListingDungeon()
+	local entry = C_LFGList.GetActiveEntryInfo()
+	local activityID = entry and entry.activityIDs and entry.activityIDs[1]
+	if not activityID or ns.IsSecret(activityID) then
+		return nil
+	end
+	if byActivityID[activityID] then
+		return byActivityID[activityID]
+	end
+	local info = C_LFGList.GetActivityInfoTable(activityID)
+	if info and not ns.IsSecret(info.mapID) and byMapID[info.mapID] then
+		return byMapID[info.mapID]
+	end
+	if info and info.fullName and not ns.IsSecret(info.fullName) then
+		for _, dungeon in ipairs(ns.Season.dungeons) do
+			if info.fullName:find(dungeon.name, 1, true) then
+				return dungeon
+			end
+		end
+	end
+end
+
+-- The dungeon of the keystone in your bags, if any.
+function ns.GetKeystoneDungeon()
+	local ok, challengeMapID = pcall(C_MythicPlus.GetOwnedKeystoneChallengeMapID)
+	if ok and challengeMapID and not ns.IsSecret(challengeMapID) then
+		return byChallengeMapID[challengeMapID]
+	end
+end
+
+-- Your listing's dungeon first, then your own key's.
+function ns.GetContextDungeon()
+	return ns.GetListingDungeon() or ns.GetKeystoneDungeon()
+end
+
+-- Names and realms -----------------------------------------------------------
+
+-- Splits "Name-Realm" into name and realm. Players from your own realm come without "-Realm".
+function ns.SplitNameRealm(fullName, realm)
+	local name, nameRealm = strsplit("-", fullName, 2)
+	realm = (realm and realm ~= "") and realm or nameRealm
+	if not realm or realm == "" then
+		realm = GetNormalizedRealmName() or GetRealmName()
+	end
+	return name, realm
+end
+
+local function AsciiLower(c)
+	return string.char(c:byte() + 32)
+end
+
+-- WoW gives realms without spaces ("TwistingNether"); Warcraft Logs wants "twisting-nether".
+function ns.GetRealmSlug(realm)
+	-- ASCII-only character classes: %s, %u and lower() can depend on the system
+	-- locale and break non-Latin (e.g. Cyrillic) realm names.
+	local key = realm:gsub("[ %-']", ""):gsub("\226\128\153", ""):gsub("[A-Z]", AsciiLower)
+	local slugs = ns.RealmSlugs[ns.REGION]
+	if slugs and slugs[key] then
+		return slugs[key]
+	end
+	-- Unknown realm: split CamelCase as a best guess.
+	local guess = realm:gsub("'", ""):gsub("([a-z])([A-Z])", "%1-%2"):gsub(" +", "-")
+	return (guess:gsub("[A-Z]", AsciiLower))
+end
+
+function ns.BuildLogsURL(name, realm, dungeon)
+	local url = CHARACTER_URL:format(ns.REGION, ns.GetRealmSlug(realm), name)
+	if dungeon then
+		url = url .. DUNGEON_QUERY:format(ns.Season.wclZoneID, dungeon.wclEncounterID)
+	end
+	return url
+end
+
+-- Shows the copy popup for a player. fullName may be "Name" or "Name-Realm".
+function ns.ShowLogsFor(fullName, realm, dungeon)
+	if not fullName or ns.IsSecret(fullName) or fullName == "" then
+		ns.Print("Can't read this player's name right now (try again out of combat).")
+		return
+	end
+	local name, playerRealm = ns.SplitNameRealm(fullName, realm)
+	dungeon = dungeon or ns.GetContextDungeon()
+	local title = name .. " - " .. (dungeon and dungeon.name or "all dungeons")
+	ns.ShowCopyPopup(title, ns.BuildLogsURL(name, playerRealm, dungeon))
+end
+
+-- Slash command ---------------------------------------------------------------
+
+local function PrintHelp()
+	ns.Print("Usage:")
+	print("  /pl Name-Realm [dungeon]  - link to a player's logs")
+	print("  /pl debug  - show which dungeon PugLogs detects")
+	print("  /pl live on|off  - send applicants to the PugLogs window on your computer")
+	print("  /pl send  - send the current applicants again")
+	print("  /pl test  - take one test screenshot and report each step")
+	print("  /pl paste  - paste results from the PugLogs window into applicant tooltips")
+	print("  /pl filters  - choose which applicants are looked up (item level, rating, role, class, spec)")
+	print("  Or right-click an applicant or group member and choose \"Check logs\".")
+end
+
+SLASH_PUGLOGS1 = "/pl"
+SLASH_PUGLOGS2 = "/puglogs"
+SlashCmdList.PUGLOGS = function(msg)
+	msg = strtrim(msg or "")
+	if msg == "" then
+		PrintHelp()
+	elseif msg == "filters" or msg == "options" then
+		ns.OpenFilters()
+	elseif msg == "paste" then
+		ns.OpenPasteBox()
+	elseif ns.HandleLiveSlash and ns.HandleLiveSlash(msg) then
+		return
+	elseif msg == "debug" then
+		local entry = C_LFGList.GetActiveEntryInfo()
+		local activityID = entry and entry.activityIDs and entry.activityIDs[1]
+		local info = activityID and C_LFGList.GetActivityInfoTable(activityID)
+		ns.Print(("Listing activity: %s (%s, map %s)"):format(
+			tostring(activityID), tostring(info and info.fullName), tostring(info and info.mapID)))
+		local ok, keyMap = pcall(C_MythicPlus.GetOwnedKeystoneChallengeMapID)
+		ns.Print("Keystone challenge map: " .. tostring(ok and keyMap))
+		local dungeon = ns.GetContextDungeon()
+		ns.Print("Detected dungeon: " .. (dungeon and dungeon.name or "none"))
+	else
+		local player, dungeonText = msg:match("^(%S+)%s*(.*)$")
+		local dungeon
+		if dungeonText ~= "" then
+			dungeon = ns.FindDungeonByName(dungeonText)
+			if not dungeon then
+				ns.Print("Unknown dungeon: " .. dungeonText)
+				return
+			end
+		end
+		ns.ShowLogsFor(player, nil, dungeon)
+	end
+end

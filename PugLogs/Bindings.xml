@@ -1,0 +1,5 @@
+<Bindings>
+	<Binding name="PUGLOGS_PASTE" header="PUGLOGS" category="ADDONS">
+		PugLogs_OpenPasteBox()
+	</Binding>
+</Bindings>
