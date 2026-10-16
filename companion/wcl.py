@@ -46,17 +46,40 @@ def read_config():
     return values
 
 
+class WCLError(Exception):
+    pass
+
+
+class MissingCredentials(WCLError):
+    """No Warcraft Logs API client has been set up yet."""
+
+
 def load_credentials():
     values = read_config()
     client_id = values.get("WCL_CLIENT_ID")
     secret = values.get("WCL_CLIENT_SECRET")
     if not client_id or not secret:
-        raise SystemExit(f"Fill in WCL_CLIENT_ID and WCL_CLIENT_SECRET in {ENV_FILE}")
+        raise MissingCredentials(f"No Warcraft Logs API client in {ENV_FILE}")
     return client_id, secret
 
 
-class WCLError(Exception):
-    pass
+def save_credentials(client_id, secret):
+    """Writes the API client into the settings file, keeping its other lines."""
+    read_config()  # creates the file if needed
+    with open(ENV_FILE, encoding="utf-8-sig") as f:
+        lines = f.read().splitlines()
+    wanted = {"WCL_CLIENT_ID": client_id, "WCL_CLIENT_SECRET": secret}
+    for i, line in enumerate(lines):
+        key = line.split("=", 1)[0].strip()
+        if key in wanted and "=" in line and not line.lstrip().startswith("#"):
+            lines[i] = f"{key}={wanted.pop(key)}"
+    lines += [f"{k}={v}" for k, v in wanted.items()]
+    with open(ENV_FILE, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    try:
+        os.chmod(ENV_FILE, 0o600)
+    except OSError:
+        pass
 
 
 class RateLimited(WCLError):
@@ -64,8 +87,11 @@ class RateLimited(WCLError):
 
 
 class Client:
-    def __init__(self):
-        self._client_id, self._secret = load_credentials()
+    def __init__(self, client_id=None, secret=None):
+        if client_id and secret:
+            self._client_id, self._secret = client_id, secret
+        else:
+            self._client_id, self._secret = load_credentials()
         self._token = None
         self._token_expires = 0
 

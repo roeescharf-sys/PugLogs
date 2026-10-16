@@ -94,7 +94,7 @@ uses it to identify itself with an API client (a "key"). It is **free** and take
 1. Log in at [warcraftlogs.com](https://www.warcraftlogs.com) and open
    [API Clients](https://www.warcraftlogs.com/api/clients/) → **Create Client**.
 2. Name: anything (e.g. `PugLogs`). Redirect URL: `http://localhost`. Leave "Public Client" unchecked.
-3. Copy the **Client ID** and **Client Secret** into your settings file (see Setup).
+3. Paste the **Client ID** and **Client Secret** into the PugLogs setup page.
 
 ---
 
@@ -105,49 +105,37 @@ uses it to identify itself with an API client (a "key"). It is **free** and take
 | Game | World of Warcraft Retail 12.x (Midnight), current Mythic+ season |
 | Region | **EU** realms (other regions need a realm table - see Limitations) |
 | Computer | macOS or Windows |
-| Python | **3.12 or newer** - [python.org/downloads](https://www.python.org/downloads/) (Windows: tick "Add python.exe to PATH") |
 | Warcraft Logs | A free account and API client (see above) |
 | Display | WoW in **windowed** mode if you want the live window next to the game (macOS can't place windows over fullscreen games) |
 
-The companion installs its own Python packages (OpenCV for reading QR codes, NumPy, Pillow) into
-a private folder the first time it runs.
+Nothing else to install: the download includes everything it needs (only running from source needs Python).
 
 ---
 
-## Setup
+## Install
 
-### 1. Get the files
-Download this repository (**Code → Download ZIP**) and unzip it, or `git clone` it.
+1. Download the latest **PugLogs-Windows.zip** or **PugLogs-macOS.zip** from
+   [Releases](https://github.com/roeescharf-sys/PugLogs/releases/latest) and unzip it anywhere.
+2. Start **PugLogs** (`PugLogs.exe` on Windows). The first time:
+   - Windows may say "Windows protected your PC": click **More info → Run anyway**.
+   - macOS may say it can't be opened: **System Settings → Privacy & Security → Open Anyway**
+     (or right-click → Open). The first start can take up to half a minute.
 
-### 2. Install the addon
-Copy the inner **`PugLogs`** folder (the one containing `PugLogs.toc`) into WoW's AddOns folder:
+   These warnings appear because PugLogs isn't signed with a paid developer certificate.
+3. PugLogs **installs the WoW addon for you** and opens its window in your browser, which walks
+   you through creating your free Warcraft Logs API client and pasting it in.
+4. In WoW, type `/reload`.
 
-- **macOS:** `/Applications/World of Warcraft/_retail_/Interface/AddOns/PugLogs`
-- **Windows:** `C:\Program Files (x86)\World of Warcraft\_retail_\Interface\AddOns\PugLogs`
+That's it. Next time, just start PugLogs before you list a key. It updates the addon by itself
+when you download a newer version. If WoW is installed somewhere unusual, add a line
+`WOW_DIR=<your _retail_ folder>` to the settings file shown on the setup page.
 
-(On macOS you can symlink it instead, to edit in place:
-`ln -s "$PWD/PugLogs" "/Applications/World of Warcraft/_retail_/Interface/AddOns/PugLogs"`.)
-
-### 3. Start the companion once
-- **macOS:** in Terminal, run `companion/run.sh`
-- **Windows:** double-click `companion\run.bat`
-
-The first run installs what it needs and creates your settings file, then stops and tells you to
-add your key:
-- macOS: `~/.config/puglogs/wcl.env`
-- Windows: `C:\Users\<you>\.config\puglogs\wcl.env`
-
-### 4. Add your API key
-Open the settings file and fill in:
-```
-WCL_CLIENT_ID=your client id
-WCL_CLIENT_SECRET=your client secret
-```
-If WoW is installed somewhere unusual, also add `WOW_DIR=` with the path to your `_retail_` folder.
-
-### 5. Run it
-Start the companion again (step 3). A browser window opens at http://localhost:47615 - keep it
-next to WoW. In game, type `/reload` once.
+### Running from source (developers)
+Requires Python 3.12+. Clone the repository, then start `companion/run.sh` (macOS) or
+`companion\run.bat` (Windows); the first run creates a private Python environment. Build the
+downloads with `python companion/build.py`, or push a `v*` tag to have GitHub build both.
+On macOS you can symlink the addon into WoW to edit it in place
+(`ln -s "$PWD/PugLogs" "/Applications/World of Warcraft/_retail_/Interface/AddOns/PugLogs"`).
 
 ---
 
@@ -246,7 +234,9 @@ companion/            the program (Python)
   inbox.py            reads QR screenshots
   wcl.py              Warcraft Logs API client
   clipboard.py        clipboard on macOS and Windows
-  run.sh / run.bat    start scripts
+  installer.py        installs/updates the addon in WoW
+  build.py            builds the downloads (PyInstaller)
+  run.sh / run.bat    start scripts (running from source)
 docs/api-costs.md     measured API costs
 tools/gen_realms.py   regenerates the EU realm table
 ```

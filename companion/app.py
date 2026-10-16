@@ -1,7 +1,8 @@
 """PugLogs companion: reads applicants from the addon's QR screenshots, looks them up on
 Warcraft Logs and shows them in a browser window at http://localhost:47615.
 
-Run with ./run.sh (it sets up everything on first run).
+Run with ./run.sh or run.bat (they set up everything on first run), or as the packaged
+PugLogs app. On first start it installs the addon and shows a setup page for the API key.
 """
 import collections
 import itertools
@@ -16,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import export
 import inbox
+import installer
 import lookup
 import wcl
 
@@ -56,7 +58,9 @@ def find_wow_dir():
     sys.exit("Couldn't find your World of Warcraft folder. Add a line like\n"
              "  WOW_DIR=C:\\Program Files (x86)\\World of Warcraft\\_retail_\n"
              f"to {wcl.ENV_FILE} and start PugLogs again.")
-WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
+# Inside the packaged app, data files live in sys._MEIPASS.
+RESOURCE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+WEB_DIR = os.path.join(RESOURCE_DIR, "web")
 SEASON_ZONE_ID = 55
 
 
@@ -69,6 +73,7 @@ class State:
         self.updated_at = None
         self.messages = collections.deque(maxlen=8)
         self.rate = {}
+        self.setup_needed = False    # no API key yet: the window shows the setup page
         self._pages = {}             # batch -> {page number: Page}
         self.auto_copy = False       # off: only copy when the paste box in WoW asks
         self.copied_text = None
@@ -110,6 +115,8 @@ class State:
                 "applications": [{"id": k, "members": v} for k, v in applications.items()],
                 "rate": self.rate,
                 "messages": list(self.messages),
+                "setupNeeded": self.setup_needed,
+                "settingsFile": wcl.ENV_FILE,
                 "autoCopy": self.auto_copy,
                 "copiedAt": self.copied_at,
             }
@@ -255,6 +262,10 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
             if self.path == "/api/copy":
                 reply = {"copied": copy_for_wow(force=True)}
+            elif self.path == "/api/setup":
+                ok, error = set_up_api_client(str(body.get("clientId", "")).strip(),
+                                              str(body.get("secret", "")).strip())
+                reply = {"ok": ok, "error": error}
             elif self.path == "/api/autocopy":
                 with state.lock:
                     state.auto_copy = bool(body["on"])
@@ -293,23 +304,67 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-def main():
-    screenshots = os.path.join(find_wow_dir(), "Screenshots")
+_services_started = False
+_screenshots = None
+
+
+def start_services():
+    """Logs in to Warcraft Logs and starts looking applicants up. Raises MissingCredentials
+    if no API client is set up yet."""
+    global _services_started
+    if _services_started:
+        return
+    lk = lookup.Lookup(log=state.log)
+    state.rate = lk.refresh_rate()
+    _services_started = True
+    with state.lock:
+        state.setup_needed = False
+    threading.Thread(target=worker, args=(lk,), daemon=True).start()
+    threading.Thread(target=retry_waiting, daemon=True).start()
+    inbox.Inbox(_screenshots, on_page, state.log).start()
+    state.log(f"Watching {_screenshots}")
+
+
+def set_up_api_client(client_id, secret):
+    """From the setup page: checks the API client works, saves it and starts PugLogs."""
+    if not client_id or not secret:
+        return False, "Fill in both the Client ID and the Client Secret."
     try:
-        lk = lookup.Lookup(log=state.log)  # exits with instructions if the API key is missing
-        state.rate = lk.refresh_rate()
+        wcl.Client(client_id, secret).rate_limit()
     except wcl.WCLError as e:
-        sys.exit(f"Warcraft Logs login failed: {e}")
+        return False, f"Warcraft Logs didn't accept these: {e}"
+    except OSError as e:
+        return False, f"Couldn't reach Warcraft Logs: {e}"
+    wcl.save_credentials(client_id, secret)
+    try:
+        start_services()
+    except wcl.WCLError as e:
+        return False, str(e)
+    state.log("API client saved - PugLogs is ready")
+    return True, None
+
+
+def main():
+    global _screenshots
+    wow_dir = find_wow_dir()
+    _screenshots = os.path.join(wow_dir, "Screenshots")
+    installer.install(wow_dir, log=state.log)
     try:
         server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     except OSError:
         sys.exit(f"Port {PORT} is in use (is PugLogs already running?). "
                  f"Close the other program or set PUGLOGS_PORT to another number.")
-    threading.Thread(target=worker, args=(lk,), daemon=True).start()
-    threading.Thread(target=retry_waiting, daemon=True).start()
-    inbox.Inbox(screenshots, on_page, state.log).start()
+    try:
+        start_services()
+    except wcl.MissingCredentials:
+        with state.lock:
+            state.setup_needed = True
+        state.log("Set up your Warcraft Logs API client in the PugLogs window")
+    except wcl.WCLError as e:
+        with state.lock:
+            state.setup_needed = True
+        state.log(f"Warcraft Logs login failed ({e}) - check your API client in the PugLogs window")
     url = f"http://localhost:{PORT}"
-    state.log(f"Watching {screenshots}")
     print(f"PugLogs window: {url}  (Ctrl+C to stop)", flush=True)
     if "--no-browser" not in sys.argv:
         webbrowser.open(url)
@@ -319,5 +374,17 @@ def main():
         pass
 
 
+def run():
+    try:
+        main()
+    except SystemExit as e:
+        # A packaged app's window closes immediately; keep the message readable.
+        if getattr(sys, "frozen", False) and e.code not in (None, 0):
+            print(e.code if isinstance(e.code, str) else "", flush=True)
+            input("Press Enter to close.")
+            sys.exit(1)
+        raise
+
+
 if __name__ == "__main__":
-    main()
+    run()

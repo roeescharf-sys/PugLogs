@@ -1,0 +1,23 @@
+PugLogs - Warcraft Logs for your Mythic+ applicants
+https://github.com/roeescharf-sys/PugLogs
+
+STARTING IT
+  Windows: double-click PugLogs.exe
+           If Windows says "Windows protected your PC": click "More info", then "Run anyway".
+  macOS:   double-click PugLogs
+           If macOS says it can't be opened: open System Settings > Privacy & Security,
+           scroll down and click "Open Anyway" (or right-click PugLogs > Open).
+           If it then complains about other files, open Terminal and run once:
+             xattr -dr com.apple.quarantine <drag the PugLogs folder here>
+
+THE FIRST TIME
+  1. PugLogs installs the WoW addon for you and opens a page in your browser.
+  2. That page shows how to create your free Warcraft Logs API client (about a minute)
+     and where to paste it.
+  3. In WoW, type /reload.
+
+EVERY TIME YOU PUG
+  Start PugLogs, keep its browser page next to WoW (play in windowed mode), list your key.
+  Hover applicants after clicking "Paste logs" in the Group Finder. In game: /pl for commands.
+
+Keep the PugLogs window open while you play; close it to stop PugLogs.

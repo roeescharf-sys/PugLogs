@@ -16,6 +16,7 @@
   #listing { font-weight: 600; }
   #rate, #updated { color: var(--dim); }
   .copy { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+  .copy[hidden] { display: none; }
   .copy label { color: var(--dim); cursor: pointer; }
   main { padding: 12px 16px 40px; display: grid; gap: 10px; }
   .app { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
@@ -35,6 +36,15 @@
   .error { color: var(--bad); }
   .scroll { overflow-x: auto; }
   .reason { font-size: 12px; margin-top: 2px; }
+  #setup { max-width: 640px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 20px 16px; }
+  #setup h2 { color: var(--accent); font-size: 18px; }
+  #setup a { color: var(--accent); }
+  #setup li { margin: 6px 0; }
+  #setupForm { display: grid; gap: 10px; margin: 16px 0 8px; }
+  #setupForm label { display: grid; gap: 4px; color: var(--dim); }
+  #setupForm input { background: var(--bg); color: var(--text); border: 1px solid #3a404b; border-radius: 4px; padding: 6px 8px; font: inherit; }
+  #setupForm button { justify-self: start; padding: 6px 14px; }
+  code { background: var(--bg); padding: 1px 4px; border-radius: 3px; }
   button.btn { background: #2a2e36; color: var(--text); border: 1px solid #3a404b; border-radius: 4px; padding: 2px 8px; font: inherit; cursor: pointer; }
   button.btn:hover { border-color: var(--accent); }
   #empty { color: var(--dim); padding: 24px 0; }
@@ -57,6 +67,24 @@
   </span>
 </header>
 <main>
+  <section id="setup" hidden>
+    <h2>Welcome to PugLogs</h2>
+    <p>PugLogs reads your applicants' runs from Warcraft Logs, which needs a free API client of your own
+      (it takes a minute, and it stays on this computer).</p>
+    <ol>
+      <li>Log in at <a href="https://www.warcraftlogs.com" target="_blank" rel="noopener">warcraftlogs.com</a> and open
+        <a href="https://www.warcraftlogs.com/api/clients/" target="_blank" rel="noopener">API Clients</a> &rarr; <b>Create Client</b>.</li>
+      <li>Name: <code>PugLogs</code> &middot; Redirect URL: <code>http://localhost</code> &middot; leave "Public Client" unchecked &middot; Create.</li>
+      <li>Copy the two values it shows into the boxes below.</li>
+    </ol>
+    <form id="setupForm">
+      <label>Client ID <input id="clientId" autocomplete="off" spellcheck="false" required></label>
+      <label>Client Secret <input id="secret" type="password" autocomplete="off" required></label>
+      <button class="btn" type="submit">Save and start</button>
+      <div id="setupMsg" class="meta"></div>
+    </form>
+    <p class="meta">Saved in <code id="settingsFile"></code>. Never share your Client Secret.</p>
+  </section>
   <div id="apps"></div>
   <div id="empty" hidden>No applicants right now.</div>
   <div id="messages"></div>
@@ -107,6 +135,14 @@ async function refresh() {
   let s;
   try { s = await (await fetch("/api/state", {cache: "no-store"})).json(); }
   catch { document.getElementById("listing").textContent = "Companion not running"; return; }
+  document.getElementById("setup").hidden = !s.setupNeeded;
+  document.querySelector(".copy").hidden = !!s.setupNeeded;
+  document.getElementById("settingsFile").textContent = s.settingsFile || "";
+  if (s.setupNeeded) {
+    document.getElementById("listing").textContent = "Setup";
+    document.getElementById("apps").innerHTML = "";
+    return;
+  }
   const l = s.listing;
   document.getElementById("listing").textContent = l
     ? (l.dungeon ? `${l.dungeon}${l.key ? " +" + l.key : ""}${l.filtered ? ` · ${l.filtered} filtered out` : ""}` : "No active listing")
@@ -123,6 +159,17 @@ async function refresh() {
   document.getElementById("messages").innerHTML = s.messages.map(m =>
     `<div>${new Date(m.at*1000).toLocaleTimeString()} ${esc(m.text)}</div>`).join("");
 }
+document.getElementById("setupForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const msg = document.getElementById("setupMsg");
+  msg.textContent = "Checking with Warcraft Logs...";
+  msg.className = "meta";
+  const r = await (await fetch("/api/setup", { method: "POST", body: JSON.stringify({
+    clientId: document.getElementById("clientId").value, secret: document.getElementById("secret").value }) })).json();
+  msg.textContent = r.ok ? "Saved! PugLogs is ready - list a key in WoW." : r.error;
+  msg.className = r.ok ? "timed" : "error";
+  refresh();
+});
 document.getElementById("copyBtn").addEventListener("click", async () => {
   await fetch("/api/copy", { method: "POST", body: "{}" });
   refresh();
