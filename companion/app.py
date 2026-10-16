@@ -392,7 +392,11 @@ def run():
     if getattr(sys, "frozen", False):
         # The packaged app has no console: keep a log file for troubleshooting.
         os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
-        sys.stdout = sys.stderr = open(LOG_FILE, "w", encoding="utf-8", buffering=1)
+        try:
+            log = open(LOG_FILE, "w", encoding="utf-8", buffering=1)
+        except OSError:  # Windows: another PugLogs may hold the file open
+            log = open(LOG_FILE + f".{os.getpid()}", "w", encoding="utf-8", buffering=1)
+        sys.stdout = sys.stderr = log
     if "--selftest" in sys.argv:
         print("window engine OK:", window.self_test(), flush=True)
         return

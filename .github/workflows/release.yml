@@ -54,10 +54,11 @@ jobs:
           cat "$RUNNER_TEMP/home/.config/puglogs/puglogs.log"
           grep -q '"setupNeeded": true' "$RUNNER_TEMP/state.json"
           # The window engine (WebView2 on Windows, WebKit on macOS) must load from the build.
-          rm -f "$RUNNER_TEMP/home/.config/puglogs/puglogs.log"
-          HOME="$RUNNER_TEMP/home" USERPROFILE="$RUNNER_TEMP/home" "$exe" --selftest
-          cat "$RUNNER_TEMP/home/.config/puglogs/puglogs.log"
-          grep -q "window engine OK" "$RUNNER_TEMP/home/.config/puglogs/puglogs.log"
+          # (separate home folder: the first copy is still running and holds its log open)
+          mkdir -p "$RUNNER_TEMP/home2"
+          HOME="$RUNNER_TEMP/home2" USERPROFILE="$RUNNER_TEMP/home2" "$exe" --selftest
+          cat "$RUNNER_TEMP/home2/.config/puglogs/puglogs.log"
+          grep -q "window engine OK" "$RUNNER_TEMP/home2/.config/puglogs/puglogs.log"
           test -f "$RUNNER_TEMP/wow/Interface/AddOns/PugLogs/PugLogs.toc"
           echo "Smoke test passed"
 
