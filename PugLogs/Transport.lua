@@ -224,9 +224,9 @@ end
 local SendNow
 local queuedRequest -- a request flag waiting for the running capture to finish
 
--- Paste-request tracing in chat (/pl debug on|off) while the paste flow is being tested.
+-- Paste-request tracing in chat, for bug reports: /pl debug on|off (off by default).
 local function Trace(text)
-	if PugLogsDB and PugLogsDB.debugPaste ~= false then
+	if PugLogsDB and PugLogsDB.debugPaste then
 		ns.Print("|cff888888[paste] " .. text .. "|r")
 	end
 end

@@ -175,9 +175,6 @@ def queue_job(priority, job):
 
 
 def on_page(page):
-    # Temporary trace while the paste flow is tested: every code read, and what it was.
-    print(f"{time.strftime('%H:%M:%S')}   code {page.page}/{page.pages} of {page.batch}"
-          f"{' [paste request]' if 'R' in page.flags else ''}: {len(page.members)} player(s)", flush=True)
     if "S" in page.flags:
         # /pl wcl in WoW: show the API key page.
         with state.lock:
