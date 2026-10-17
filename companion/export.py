@@ -16,8 +16,9 @@ def _num(value, digits=0):
     return str(round(value, digits)) if digits else str(int(round(value)))
 
 
-def build(listing, members, results, result_key):
-    """members: payload.Member list; results: state.results; returns the paste text or None."""
+def build(listing, members, results, result_key, request=None):
+    """members: payload.Member list; results: state.results; returns the paste text or None.
+    request: ID of the paste-box request these results answer (the addon checks it)."""
     if not listing or not listing.get("encounterId"):
         return None
     records = []
@@ -47,11 +48,13 @@ def build(listing, members, results, result_key):
         records.append(",".join(fields))
     if pending:
         records.append(f"!pending,{pending}")  # still being looked up
+    if request:
+        records.append(f"!req,{_clean(request)}")  # which paste request this answers
     head = ["PLR1", str(listing["encounterId"]), str(listing.get("key") or 0), _clean(listing.get("dungeon", ""))]
     return ";".join(head + records)
 
 
-RESTORE_AFTER = 20  # seconds before your own clipboard text is put back
+RESTORE_AFTER = 60  # seconds before your own clipboard text is put back
 
 
 def copy(text):
@@ -76,6 +79,8 @@ def copy_then_restore(text):
                 _restore["previous"] = _paste()
             except Exception:
                 _restore["previous"] = ""
+            if _restore["previous"].startswith("PLR1;"):
+                _restore["previous"] = ""  # older PugLogs results: never put those back
         else:
             _restore["timer"].cancel()
         copy(text)

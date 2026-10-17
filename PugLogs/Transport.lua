@@ -177,6 +177,9 @@ end
 local function BuildPages(dungeon, lines, filtered, flags)
 	batchCounter = batchCounter + 1
 	local batch = GetServerTime() .. "-" .. batchCounter
+	if flags == "R" then
+		ns.lastPasteRequest = batch -- the companion sends it back with the results
+	end
 	local encounterID = dungeon and dungeon.wclEncounterID or 0
 	local keyLevel = GetListingKeyLevel(dungeon)
 	local dungeonName = dungeon and dungeon.name or ""
@@ -459,7 +462,11 @@ function ns.SendRequest(flag)
 		pages = BuildPages(dungeon, lines, filtered, flag)
 	else
 		batchCounter = batchCounter + 1
-		pages = { table.concat({ "PL2", "req-" .. GetServerTime() .. "-" .. batchCounter, 1, 1, ns.REGION, 0, 0, "", flag }, "\t") }
+		local batch = "req-" .. GetServerTime() .. "-" .. batchCounter
+		if flag == "R" then
+			ns.lastPasteRequest = batch
+		end
+		pages = { table.concat({ "PL2", batch, 1, 1, ns.REGION, 0, 0, "", flag }, "\t") }
 	end
 	pagesFlag = flag
 	pageIndex = 0

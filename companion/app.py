@@ -91,6 +91,7 @@ class State:
         self._pages = {}             # batch -> {page number: Page}
         self.auto_copy = False       # off: only copy when the paste box in WoW asks
         self.copied_text = None
+        self.paste_request = None    # ID of the latest paste-box request (sent back in the copy)
         self.copied_at = None
         self.waiting = {}            # rkey -> lookup job, retried when the hourly limit resets
 
@@ -180,6 +181,9 @@ def on_page(page):
         window.bring_to_front()
         state.log("Showing the Warcraft Logs API key page")
         return
+    if "R" in page.flags:
+        with state.lock:
+            state.paste_request = page.batch
     if "R" in page.flags and not page.encounter_id:
         # The paste box in WoW was opened (older addon, or no listing): copy what we have.
         copy_for_paste_box()
@@ -239,7 +243,8 @@ def copy_for_paste_box(wait=0):
     while time.time() < deadline and lookups_in_progress():
         time.sleep(0.1)
     with state.lock:
-        changed = export.build(state.listing, state.members, state.results, result_key) != state.copied_text
+        changed = export.build(state.listing, state.members, state.results, result_key,
+                               state.paste_request) != state.copied_text
     if changed and copy_for_wow(force=True, restore=True):
         state.log("Copied again with the newly looked-up applicants - paste again to load them")
 
@@ -250,7 +255,7 @@ def copy_for_wow(force=False, restore=False):
     with state.lock:
         if not (state.auto_copy or force):
             return False
-        text = export.build(state.listing, state.members, state.results, result_key)
+        text = export.build(state.listing, state.members, state.results, result_key, state.paste_request)
         if not text or (text == state.copied_text and not force):
             return False
     try:

@@ -39,6 +39,8 @@ local function Parse(text)
 		local who = f[1]
 		if who == "!pending" then
 			data.pending = Num(f[2]) or 0 -- applicants the companion was still looking up
+		elseif who == "!req" then
+			data.request = f[2] -- the paste request these results answer
 		elseif who and who ~= "" then
 			local key = Num(f[2]) or 0
 			data.players[who:lower()] = key == 0 and { none = true, hidden = f[3] == "hidden" } or {
@@ -92,6 +94,13 @@ local function OnPasted(editBox)
 		else
 			SetHint(("Not ready yet - wait for \"Ready\", then press %s."):format(PASTE_KEY), 1, 0.7, 0.3)
 		end
+		return
+	end
+	-- Only accept the answer to this box's own request: anything else on the clipboard is
+	-- older results (e.g. from a previous paste) and would hide newer applicants.
+	local stale = data.request and ns.lastPasteRequest and data.request ~= ns.lastPasteRequest
+	if stale or not ready then
+		SetHint(("Those were older results - wait for \"Ready\", then press %s."):format(PASTE_KEY), 1, 0.7, 0.3)
 		return
 	end
 	PugLogsDB.liveData = data -- also kept through /reload
