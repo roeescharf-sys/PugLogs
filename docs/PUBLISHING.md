@@ -37,6 +37,9 @@ The app tells its users when a new version is out.
 
 ## One-time setup: Wago Addons (optional, about 5 minutes)
 
+> Done: project created from the GitHub repository (ID **jK8Wv46y**, https://addons.wago.io/addons/puglogs);
+> `WAGO_PROJECT_ID` is set. Remaining: the `WAGO_API_TOKEN` secret.
+
 1. Log in at **https://addons.wago.io** (with Patreon, Discord, Battle.net, ...).
 2. **Developer dashboard -> Create project**: name `PugLogs`, same summary/description.
 3. Note the project's **ID** (in the project settings / URL).
