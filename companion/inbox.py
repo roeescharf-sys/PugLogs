@@ -12,22 +12,45 @@ import payload
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".tga")
 
 
+def low_contrast_to_black_white(corner):
+    """The addon's subtle style draws the code as dark grey on near-black, starting exactly at
+    the top-left pixel. Read the two shades from the image itself (WoW's brightness/gamma
+    settings shift them) and turn the code into plain black on white."""
+    if corner.shape[0] < 40 or corner.shape[1] < 40:
+        return None
+    background = int(corner[1, 1])
+    # The quiet zone (background shade) runs diagonally until the first dark-grey square.
+    edge = 0
+    while edge < min(corner.shape) - 1 and abs(int(corner[edge, edge]) - background) <= 3:
+        edge += 1
+    if edge < 4:
+        return None
+    module = int(corner[edge + 1, edge + 1])
+    if abs(module - background) < 5:
+        return None
+    closer_to_module = np.abs(corner.astype(np.int16) - module) < np.abs(corner.astype(np.int16) - background)
+    return np.where(closer_to_module, 0, 255).astype(np.uint8)
+
+
 def decode_file(path):
     """Returns the decoded Page, or None if the image has no PugLogs QR code."""
     with Image.open(path) as img:
         gray = np.array(img.convert("L"))
-    # The addon draws a small code (2 pixels per square) in the top-left corner. The
-    # detector misses some code sizes unless the image is enlarged, so try the corner
-    # as-is, then enlarged, then the whole screenshot.
+    # The addon draws a small code (2 pixels per square) in the top-left corner, either
+    # black on white or low contrast. The detector misses some code sizes unless the image
+    # is enlarged, so try the corner as-is, then enlarged, then the whole screenshot.
     detector = cv2.QRCodeDetectorAruco()
     h, w = gray.shape
     corner = gray[: min(h, 700), : min(w, 700)]
-    candidates = (
-        corner,
+    subtle = low_contrast_to_black_white(corner)
+    candidates = [corner]
+    if subtle is not None:
+        candidates.append(cv2.resize(subtle, None, fx=3, fy=3, interpolation=cv2.INTER_NEAREST))
+    candidates += [
         cv2.resize(corner, None, fx=3, fy=3, interpolation=cv2.INTER_NEAREST),
         cv2.resize(corner, None, fx=2, fy=2, interpolation=cv2.INTER_NEAREST),
         gray,
-    )
+    ]
     for region in candidates:
         text = detector.detectAndDecode(region)[0]
         if text:

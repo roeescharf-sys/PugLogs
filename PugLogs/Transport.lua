@@ -11,7 +11,13 @@ local QUIET_ZONE = 4       -- white border, in squares
 local MAX_PAGE_BYTES = 350 -- keeps each code small; big queues use several codes in a row
 local DEBOUNCE = 1.5       -- seconds to wait for more applicant changes before capturing
 local EC_LEVEL = 2         -- QR error correction level M
-local SETTLE = 0.3         -- seconds the code is on screen before the screenshot
+local SETTLE_FRAMES = 2    -- rendered frames the code is on screen before the screenshot
+-- "subtle" (default): dark grey on near-black, needs lossless (TGA) screenshots while the code
+-- is up. "classic": black on white, works with any screenshot format. /pl qr subtle|classic
+local STYLES = {
+	subtle = { background = 0.05, squares = 0.11 },
+	classic = { background = 1, squares = 0 },
+}
 local FAILSAFE = 2.5       -- hide the code after this long even if no screenshot event arrives
 
 local qrFrame
@@ -19,7 +25,8 @@ local texturePool = {}
 local usedTextures = 0
 local pages, pageIndex = nil, 0
 local lastSignature
-local savedQuality
+local savedQuality, savedFormat
+local style = STYLES.classic
 local pendingTimer
 local batchCounter = 0
 local failsafeTimer
@@ -33,9 +40,8 @@ local function CreateQRFrame()
 	frame:SetFrameLevel(9999)
 	frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, 0)
 	frame:Hide()
-	local bg = frame:CreateTexture(nil, "BACKGROUND")
-	bg:SetAllPoints()
-	bg:SetColorTexture(1, 1, 1, 1)
+	frame.bg = frame:CreateTexture(nil, "BACKGROUND")
+	frame.bg:SetAllPoints()
 	return frame
 end
 
@@ -44,9 +50,9 @@ local function GetTexture()
 	local tex = texturePool[usedTextures]
 	if not tex then
 		tex = qrFrame:CreateTexture(nil, "ARTWORK")
-		tex:SetColorTexture(0, 0, 0, 1)
 		texturePool[usedTextures] = tex
 	end
+	tex:SetColorTexture(style.squares, style.squares, style.squares, 1)
 	tex:Show()
 	return tex
 end
@@ -206,7 +212,43 @@ local function FinishCapture()
 		SetCVar("screenshotQuality", savedQuality)
 		savedQuality = nil
 	end
+	if savedFormat then
+		SetCVar("screenshotFormat", savedFormat)
+		savedFormat = nil
+	end
 end
+
+-- Screenshot settings for a capture; restored by FinishCapture. The subtle style needs a
+-- lossless format - if WoW won't switch to TGA, use the classic black-and-white code.
+local function BeginCapture()
+	savedQuality = GetCVar("screenshotQuality")
+	SetCVar("screenshotQuality", "10")
+	style = STYLES.classic
+	if (PugLogsDB.qrStyle or "subtle") == "subtle" then
+		savedFormat = GetCVar("screenshotFormat")
+		SetCVar("screenshotFormat", "tga")
+		if GetCVar("screenshotFormat") == "tga" then
+			style = STYLES.subtle
+		end
+	end
+end
+
+-- Takes the screenshot after the code has been drawn for a couple of frames.
+local frameWaiter = CreateFrame("Frame")
+frameWaiter:Hide()
+frameWaiter:SetScript("OnUpdate", function(self)
+	self.frames = self.frames + 1
+	if self.frames < SETTLE_FRAMES then
+		return
+	end
+	self:Hide()
+	local shotOK, err = pcall(Screenshot)
+	if not shotOK then
+		ns.Print("Screenshot failed: " .. tostring(err))
+	elseif verbose then
+		ns.Print("Screenshot requested.")
+	end
+end)
 
 local function CaptureNextPage()
 	pageIndex = pageIndex + 1
@@ -222,21 +264,16 @@ local function CaptureNextPage()
 		return
 	end
 	DrawMatrix(matrix)
+	qrFrame.bg:SetColorTexture(style.background, style.background, style.background, 1)
 	qrFrame:Show()
 	if verbose then
 		ns.Print(("Showing QR code %d/%d (%d squares)."):format(pageIndex, #pages, #matrix))
 	end
-	-- Wait a moment so the code is on screen before the screenshot is taken.
-	C_Timer.After(SETTLE, function()
-		local shotOK, err = pcall(Screenshot)
-		if not shotOK then
-			ns.Print("Screenshot failed: " .. tostring(err))
-		elseif verbose then
-			ns.Print("Screenshot requested.")
-		end
-	end)
+	-- Wait until the code has actually been drawn before the screenshot is taken.
+	frameWaiter.frames = 0
+	frameWaiter:Show()
 	-- Never leave the code on screen if the screenshot doesn't report back.
-	failsafeTimer = C_Timer.NewTimer(SETTLE + FAILSAFE, function()
+	failsafeTimer = C_Timer.NewTimer(FAILSAFE, function()
 		failsafeTimer = nil
 		if qrFrame:IsShown() then
 			qrFrame:Hide()
@@ -268,8 +305,7 @@ function SendNow(force)
 	lastSignature = signature
 	pages = BuildPages(dungeon, lines, filtered)
 	pageIndex = 0
-	savedQuality = GetCVar("screenshotQuality")
-	SetCVar("screenshotQuality", "10")
+	BeginCapture()
 	CaptureNextPage()
 end
 
@@ -352,8 +388,7 @@ function ns.SendRequest(flag)
 	batchCounter = batchCounter + 1
 	pages = { table.concat({ "PL2", "req-" .. GetServerTime() .. "-" .. batchCounter, 1, 1, ns.REGION, 0, 0, "", flag }, "\t") }
 	pageIndex = 0
-	savedQuality = GetCVar("screenshotQuality")
-	SetCVar("screenshotQuality", "10")
+	BeginCapture()
 	CaptureNextPage()
 end
 
@@ -372,6 +407,10 @@ function ns.HandleLiveSlash(msg)
 	elseif msg == "send" then
 		SendNow(true)
 		return true
+	elseif msg == "qr subtle" or msg == "qr classic" then
+		PugLogsDB.qrStyle = msg:sub(4)
+		ns.Print("QR style: " .. PugLogsDB.qrStyle .. (PugLogsDB.qrStyle == "subtle" and " (faint dark code)." or " (black and white)."))
+		return true
 	elseif msg == "wcl" or msg == "key" or msg == "setup" then
 		ns.SendRequest("S")
 		ns.Print("Opening the Warcraft Logs API key page in PugLogs. If nothing opens, start the PugLogs app first.")
@@ -385,8 +424,7 @@ function ns.HandleLiveSlash(msg)
 		lastSignature = nil
 		pages = { table.concat({ "PL2", "test-" .. GetServerTime(), 1, 1, ns.REGION, 0, 0, "" }, "\t") }
 		pageIndex = 0
-		savedQuality = GetCVar("screenshotQuality")
-		SetCVar("screenshotQuality", "10")
+		BeginCapture()
 		CaptureNextPage()
 		return true
 	end

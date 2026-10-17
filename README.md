@@ -60,9 +60,9 @@ two parts that pass data through the only channels the game allows:
  └─────────────────────────────┘ paste  └────────────────────────────────┘
 ```
 
-1. **Game → companion:** when your applicant list changes, the addon shows a small QR code
-   (about 150 px) in the top-left corner for a fraction of a second and takes a normal WoW
-   screenshot. The companion watches the Screenshots folder, decodes the code and deletes the
+1. **Game → companion:** when your applicant list changes, the addon shows a small, faint QR
+   code (dark grey on black, about 150 px) in the top-left corner for a couple of frames and takes
+   a lossless WoW screenshot (your own screenshot settings are restored right after). The companion watches the Screenshots folder, decodes the code and deletes the
    screenshot. Your own screenshots are never touched.
 2. **Companion → Warcraft Logs:** it asks the Warcraft Logs API for each new applicant's runs in
    that dungeon and picks the run to show.
@@ -185,6 +185,7 @@ the same key level.
 | `/pl Name-Realm [dungeon]` | Link to a player's logs, e.g. `/pl Anna-Kazzak voidscar` |
 | `/pl send` | Send your current applicants to the companion again |
 | `/pl live on\|off` | Turn the QR screenshots on or off |
+| `/pl qr subtle\|classic` | Faint dark code (default) or the black-and-white one if the faint one isn't read |
 | `/pl test` | Take one test screenshot and report each step in chat |
 | `/pl debug` | Show which dungeon PugLogs detects |
 
