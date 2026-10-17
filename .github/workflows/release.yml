@@ -87,6 +87,17 @@ jobs:
           test -f "$APPDATA/Microsoft/Windows/Start Menu/Programs/PugLogs.lnk"
           echo "Installer test passed"
 
+      - name: Test an in-app update (silent install with /UPDATE=1 restarts PugLogs)
+        if: runner.os == 'Windows'
+        shell: bash
+        working-directory: companion
+        run: |
+          ./dist/PugLogs-Setup.exe //VERYSILENT //SUPPRESSMSGBOXES //NORESTART //UPDATE=1
+          for i in $(seq 1 30); do tasklist | grep -qi "PugLogs.exe" && break; sleep 2; done
+          tasklist | grep -i "PugLogs.exe"
+          taskkill //F //IM PugLogs.exe > /dev/null 2>&1 || true
+          echo "Update restart test passed"
+
       - uses: actions/upload-artifact@v4
         with:
           name: PugLogs-${{ matrix.system }}

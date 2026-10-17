@@ -51,3 +51,11 @@ Name: "{userstartup}\PugLogs"; Filename: "{app}\PugLogs.exe"; Tasks: startup
 
 [Run]
 Filename: "{app}\PugLogs.exe"; Description: "Start PugLogs now"; Flags: nowait postinstall skipifsilent
+; Updates from inside PugLogs run silently with /UPDATE=1: start PugLogs again afterwards.
+Filename: "{app}\PugLogs.exe"; Flags: nowait runasoriginaluser; Check: IsUpdate
+
+[Code]
+function IsUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:UPDATE|0}') = '1';
+end;

@@ -53,6 +53,7 @@ class State:
         self.wow_missing = False     # WoW folder not found: the window asks for it
         self.update = None           # {"version", "url"} when a newer PugLogs is released
         self.min_rating = int(window.get_setting("minRating", 0) or 0)  # set in the window
+        self.sort_by = window.get_setting("sortBy", "applied")  # window list order
         self._pages = {}             # batch -> {page number: Page}
         self.auto_copy = False       # off: only copy when the paste box in WoW asks
         self.copied_text = None
@@ -98,6 +99,7 @@ class State:
                 "applications": [{"id": k, "members": v} for k, v in applications.items()],
                 "rate": _lookup.estimated_rate() if _lookup else self.rate,
                 "minRating": self.min_rating,
+                "sortBy": self.sort_by,
                 "belowRating": below,
                 "messages": list(self.messages),
                 "setupNeeded": self.setup_needed,
@@ -297,6 +299,14 @@ class Handler(BaseHTTPRequestHandler):
                 reply = {"ok": True}
             elif self.path == "/api/wowdir":
                 reply = choose_wow_dir(body.get("path"))
+            elif self.path == "/api/update":
+                reply = {"started": start_update()}
+            elif self.path == "/api/sort":
+                value = body.get("value") if body.get("value") in ("applied", "role", "rating", "log") else "applied"
+                window.set_setting("sortBy", value)
+                with state.lock:
+                    state.sort_by = value
+                reply = {"sortBy": value}
             elif self.path == "/api/minrating":
                 reply = {"minRating": set_min_rating(body.get("value") or 0)}
             elif self.path == "/api/ontop":
@@ -362,10 +372,37 @@ def start_services():
     state.log(f"Watching {_screenshots}")
 
 
-def on_update_available(version, url):
+def on_update_available(version, url, installer_url=None):
     with state.lock:
-        state.update = {"version": version, "url": url}
+        state.update = {"version": version, "url": url, "status": None,
+                        "canUpdate": bool(installer_url) and updates.can_update_in_place()}
+        state.update_installer = installer_url
     state.log(f"PugLogs {version} is available")
+
+
+def start_update():
+    """From the window's "Update now" button: download and install, then restart."""
+    with state.lock:
+        update, url = state.update, getattr(state, "update_installer", None)
+        if not update or not update.get("canUpdate") or not url or update.get("status"):
+            return False
+        update["status"] = "Starting..."
+
+    def progress(text):
+        with state.lock:
+            state.update["status"] = text
+
+    def run():
+        try:
+            updates.install(url, progress, quit_app=lambda: os._exit(0))
+        except Exception as e:
+            with state.lock:
+                state.update["status"] = None
+                state.update["error"] = f"Update failed ({e}). Download it from the page instead."
+            state.log(f"Update failed: {e}")
+
+    threading.Thread(target=run, daemon=True).start()
+    return True
 
 
 def set_up_api_client(client_id, secret):

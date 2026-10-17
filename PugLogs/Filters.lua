@@ -23,6 +23,7 @@ local function Filters()
 		f.groupHidesSpec = true -- hide applicants whose spec is already in your group
 	end
 	f.groupHidesClass = f.groupHidesClass or false -- ... or whose class is
+	f.sortBy = f.sortBy or "default" -- applicant list order: default, role, rating, log
 	f.inviteHidesSpec, f.inviteHidesClass = nil, nil -- replaced by the group rules above
 	return f
 end
@@ -100,22 +101,76 @@ end
 
 -- Hide filtered applications from the Group Finder list. Blizzard sorts the list right
 -- after fetching it; we remove filtered entries from that same table afterwards.
-local function HideFiltered(applicants)
-	if type(applicants) ~= "table" or not Filters().hideFiltered or not ns.GetListingDungeon() then
+local ROLE_ORDER = { TANK = 1, HEALER = 2, DAMAGER = 3 }
+
+-- Sort key for one application (lower sorts first); a group counts as its best member.
+local function SortKey(applicantID, sortBy)
+	local info = C_LFGList.GetApplicantInfo(applicantID)
+	local data = PugLogsDB.liveData
+	local dungeon = ns.GetListingDungeon()
+	if data and not (dungeon and dungeon.wclEncounterID == data.encounterID) then
+		data = nil -- results from another listing
+	end
+	local best
+	for memberIdx = 1, (info and Clean(info.numMembers)) or 0 do
+		local fullName, _, _, _, _, _, _, _, _, assignedRole, _, score = C_LFGList.GetApplicantMemberInfo(applicantID, memberIdx)
+		local value
+		if sortBy == "role" then
+			value = ROLE_ORDER[Clean(assignedRole) or ""] or 4
+		elseif sortBy == "rating" then
+			value = -(Clean(score) or 0)
+		else -- log: DPS percentile of their run, from the last paste
+			value = 1
+			fullName = Clean(fullName)
+			if data and fullName then
+				local name, realm = ns.SplitNameRealm(fullName)
+				local entry = data.players[(name .. "-" .. ns.GetRealmSlug(realm)):lower()]
+				if entry and entry.percent then
+					value = -entry.percent
+				end
+			end
+		end
+		best = best and math.min(best, value) or value
+	end
+	return best or 99
+end
+
+-- Runs right after Blizzard sorts the applicant list: hide filtered applications, then
+-- re-order the rest if a sort is chosen.
+local function ProcessApplicants(applicants)
+	if type(applicants) ~= "table" or not ns.GetListingDungeon() then
 		return
 	end
-	for i = #applicants, 1, -1 do
-		local id = applicants[i]
-		if not ns.IsSecret(id) and ApplicationFiltered(id) then
-			table.remove(applicants, i)
+	local f = Filters()
+	if f.hideFiltered then
+		for i = #applicants, 1, -1 do
+			local id = applicants[i]
+			if not ns.IsSecret(id) and ApplicationFiltered(id) then
+				table.remove(applicants, i)
+			end
 		end
+	end
+	if f.sortBy ~= "default" then
+		local keys, order = {}, {}
+		for i, id in ipairs(applicants) do
+			if ns.IsSecret(id) then
+				return -- can't read them right now: keep Blizzard's order
+			end
+			keys[id], order[id] = SortKey(id, f.sortBy), i
+		end
+		table.sort(applicants, function(a, b)
+			if keys[a] ~= keys[b] then
+				return keys[a] < keys[b]
+			end
+			return order[a] < order[b]
+		end)
 	end
 end
 
 local hooked = false
 local function HookApplicantList()
 	if not hooked and LFGListUtil_SortApplicants then
-		hooksecurefunc("LFGListUtil_SortApplicants", HideFiltered)
+		hooksecurefunc("LFGListUtil_SortApplicants", ProcessApplicants)
 		hooked = true
 	end
 end
@@ -127,6 +182,15 @@ local function RefreshApplicantList()
 		LFGListApplicationViewer_UpdateResultList(viewer)
 		LFGListApplicationViewer_UpdateResults(viewer)
 	end
+end
+
+-- Sets the applicant list order ("default", "role", "rating" or "log").
+function ns.SetSort(value)
+	Filters().sortBy = value
+	if ns.OnSortChanged then
+		ns.OnSortChanged(value)
+	end
+	RefreshApplicantList()
 end
 
 -- A string that changes whenever the filters change (so applicants are re-sent).
@@ -385,8 +449,30 @@ local function BuildPanel(panel)
 	inviteNote:SetPoint("TOPLEFT", groupClass, "BOTTOMLEFT", 28, 0)
 	inviteNote:SetText("Includes you. Updates as people join or leave - someone who declines your invite never counts.")
 
+	local sortHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+	sortHeader:SetPoint("TOPLEFT", inviteNote, "BOTTOMLEFT", -24, -16)
+	sortHeader:SetText("Sort the applicant list by")
+	local sortBoxes, sortPrev = {}, nil
+	for _, option in ipairs({ { "default", "Blizzard's order" }, { "role", "Role" }, { "rating", "M+ rating" }, { "log", "Log (after Paste logs)" } }) do
+		local value, label = option[1], option[2]
+		local box = CreateCheckbox(panel, label, f.sortBy == value, function()
+			ns.SetSort(value)
+		end)
+		if sortPrev then
+			box:SetPoint("LEFT", sortPrev, "RIGHT", 130, 0)
+		else
+			box:SetPoint("TOPLEFT", sortHeader, "BOTTOMLEFT", -4, -4)
+		end
+		sortBoxes[value], sortPrev = box, box
+	end
+	ns.OnSortChanged = function(value)
+		for v, box in pairs(sortBoxes) do
+			box:SetChecked(v == value)
+		end
+	end
+
 	local roleHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-	roleHeader:SetPoint("TOPLEFT", inviteNote, "BOTTOMLEFT", -24, -16)
+	roleHeader:SetPoint("TOPLEFT", sortHeader, "BOTTOMLEFT", 0, -40)
 	roleHeader:SetText("Roles they applied as")
 	local prev
 	for i, role in ipairs(ROLE_ORDER) do

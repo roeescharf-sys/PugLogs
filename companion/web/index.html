@@ -20,6 +20,7 @@
   .meter { width: 90px; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
   .meter > div { height: 100%; background: var(--good); }
   .meter.warn > div { background: #e0a14f; } .meter.full > div { background: var(--bad); }
+  #sortBy { background: var(--bg); color: var(--text); border: 1px solid #3a404b; border-radius: 4px; padding: 2px 4px; font: inherit; }
   #minRating { width: 64px; background: var(--bg); color: var(--text); border: 1px solid #3a404b; border-radius: 4px; padding: 2px 6px; font: inherit; }
   .copy { margin-left: auto; display: flex; gap: 10px; align-items: center; }
   .copy[hidden] { display: none; }
@@ -82,6 +83,9 @@
     <button id="copyBtn" class="btn" title="Put the results on the clipboard, then press Cmd+V in WoW's PugLogs paste box">Copy for WoW</button>
     <label title="Update the clipboard automatically whenever results change"><input type="checkbox" id="autoCopy"> auto-copy</label>
     <span id="copied" class="meta"></span>
+    <label title="Order of the applicant list">sort <select id="sortBy">
+      <option value="applied">applied order</option><option value="role">role</option>
+      <option value="rating">M+ rating</option><option value="log">log</option></select></label>
     <label title="Applicants below this M+ rating are hidden and not looked up (empty = any)">min rating <input id="minRating" inputmode="numeric" placeholder="any"></label>
     <label id="onTopLabel" hidden title="Keep the PugLogs window above WoW (play WoW in windowed mode)"><input type="checkbox" id="onTop"> keep on top</label>
   </span>
@@ -165,6 +169,18 @@ function memberHtml(m) {
     </div>${body}</div>`;
 }
 
+// Sorting: groups stay together and are ranked by their best member.
+const ROLE_ORDER = { TANK: 0, HEALER: 1, DAMAGER: 2 };
+function sortApplications(apps, by) {
+  const key = {
+    role: a => Math.min(...a.members.map(m => ROLE_ORDER[m.role] ?? 3)),
+    rating: a => -Math.max(...a.members.map(m => m.score || 0)),
+    log: a => -Math.max(...a.members.map(m => (m.featured && m.featured.percent != null) ? m.featured.percent : -1)),
+  }[by];
+  if (!key) return apps;
+  return apps.map((a, i) => [key(a), i, a]).sort((x, y) => x[0] - y[0] || x[1] - y[1]).map(x => x[2]);
+}
+
 // API points meter: used/total, and a countdown to the hourly reset (ticks every second).
 let resetAt = null;
 function showRate(r) {
@@ -193,7 +209,14 @@ async function refresh() {
   catch { document.getElementById("listing").textContent = "Companion not running"; return; }
   const up = document.getElementById("update");
   up.hidden = !s.update;
-  if (s.update) up.innerHTML = `A new version of PugLogs (${esc(s.update.version)}) is available &middot; <a href="${esc(s.update.url)}" target="_blank" rel="noopener">Download it</a>`;
+  if (s.update) {
+    const u = s.update;
+    const action = u.status ? `<b>${esc(u.status)}</b>`
+      : u.canUpdate ? `<button class="btn" id="updateNow">Update now</button> <a href="${esc(u.url)}" target="_blank" rel="noopener">what's new</a>`
+      : `<a href="${esc(u.url)}" target="_blank" rel="noopener">Download it</a>`;
+    up.innerHTML = `A new version of PugLogs (${esc(u.version)}) is available &middot; ${action}`
+      + (u.error ? ` <span class="error">${esc(u.error)}</span>` : "");
+  }
   document.getElementById("version").textContent = s.version ? `PugLogs ${s.version}` : "";
   document.getElementById("wowdir").hidden = !s.wowMissing;
   if (s.wowMissing) {
@@ -223,7 +246,9 @@ async function refresh() {
   showRate(r);
   const mr = document.getElementById("minRating");
   if (document.activeElement !== mr) mr.value = s.minRating ? s.minRating : "";
-  document.getElementById("apps").innerHTML = s.applications.map(a =>
+  const sel = document.getElementById("sortBy");
+  if (document.activeElement !== sel) sel.value = s.sortBy || "applied";
+  document.getElementById("apps").innerHTML = sortApplications(s.applications, sel.value).map(a =>
     `<div class="app ${a.members.length > 1 ? "group" : ""}">${a.members.map(memberHtml).join("")}</div>`).join("");
   document.getElementById("empty").hidden = !(l && s.applications.length === 0);
   document.getElementById("autoCopy").checked = !!s.autoCopy;
@@ -264,6 +289,18 @@ document.getElementById("setupClose").addEventListener("click", async () => {
 });
 document.getElementById("copyBtn").addEventListener("click", async () => {
   await fetch("/api/copy", { method: "POST", body: "{}" });
+  refresh();
+});
+document.addEventListener("click", async e => {
+  if (e.target.id !== "updateNow") return;
+  e.target.disabled = true;
+  e.target.textContent = "Starting...";
+  await fetch("/api/update", { method: "POST", body: "{}" });
+  refresh();
+});
+document.getElementById("sortBy").addEventListener("change", async e => {
+  await fetch("/api/sort", { method: "POST", body: JSON.stringify({ value: e.target.value }) });
+  e.target.blur();
   refresh();
 });
 document.getElementById("minRating").addEventListener("change", async e => {
