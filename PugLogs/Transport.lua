@@ -390,7 +390,7 @@ end
 --   "R" = put the results on the clipboard (the paste box), "S" = show the API key page.
 function ns.SendRequest(flag)
 	if not ns.LiveEnabled() then
-		ns.Print("Live lookups with the PugLogs app are off - turn them on in /pl filters.")
+		ns.Print("Live lookups with the PugLogs app are off - turn them on in /pl opt.")
 		return
 	end
 	if pages then

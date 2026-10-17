@@ -17,7 +17,7 @@ Hide the applicants you'd never take, straight from your applicant list:
   come back if that player leaves
 
 Hidden applicants simply disappear from your list - their tooltip tells you why if you turn
-hiding off. Filters work on their own, no extra app needed. Open them with `/pl filters`.
+hiding off. Filters work on their own, no extra app needed. Open them with `/pl opt`.
 
 ## See their run for your key
 
@@ -35,13 +35,13 @@ the internet. Download it here: https://github.com/roeescharf-sys/PugLogs/releas
 
 The app walks you through creating a free Warcraft Logs API key the first time (about a minute).
 The filters and the right-click link work without it. Without the app (or with live lookups turned
-off in /pl filters), PugLogs takes no screenshots.
+off in /pl opt), PugLogs takes no screenshots.
 
 Currently EU realms only.
 
 ## Commands
 
-`/pl` - all commands, `/pl filters` - settings and filters, `/pl paste` - load results into
+`/pl` - all commands, `/pl opt` - settings and filters, `/pl paste` - load results into
 tooltips, `/pl wcl` - Warcraft Logs API key, `/pl app` - app download link
 
 Source code, help and issues: https://github.com/roeescharf-sys/PugLogs

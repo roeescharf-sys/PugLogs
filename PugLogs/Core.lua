@@ -158,7 +158,7 @@ local function PrintHelp()
 	print("  /pl send  - send the current applicants again")
 	print("  /pl test  - take one test screenshot and report each step")
 	print("  /pl paste  - paste results from the PugLogs window into applicant tooltips")
-	print("  /pl filters  - choose which applicants are looked up (item level, rating, role, class, spec)")
+	print("  /pl opt  - settings: live lookups and applicant filters (item level, rating, role, class, spec)")
 	print("  /pl wcl  - open the Warcraft Logs API key page in the PugLogs app")
 	print("  /pl app  - download link for the PugLogs app (needed for live lookups)")
 	print("  Or right-click an applicant or group member and choose \"Check logs\".")
@@ -172,7 +172,7 @@ SlashCmdList.PUGLOGS = function(msg)
 		PrintHelp()
 	elseif msg == "app" then
 		ns.ShowCopyPopup("PugLogs app - free download", ns.APP_URL)
-	elseif msg == "filters" or msg == "options" then
+	elseif msg == "opt" then
 		ns.OpenFilters()
 	elseif msg == "paste" then
 		ns.OpenPasteBox()
@@ -215,9 +215,9 @@ welcome:SetScript("OnEvent", function()
 	end
 	PugLogsDB.welcomed = true
 	C_Timer.After(8, function()
-		ns.Print("Thanks for installing PugLogs! Right-click \"Check logs\" and the filters (/pl filters) work right away.")
+		ns.Print("Thanks for installing PugLogs! Right-click \"Check logs\" and the filters (/pl opt) work right away.")
 		if ns.AppInstalled() then
-			ns.Print("The PugLogs app is installed - live Warcraft Logs runs are on (turn them off in /pl filters).")
+			ns.Print("The PugLogs app is installed - live Warcraft Logs runs are on (turn them off in /pl opt).")
 		else
 			ns.Print("For live Warcraft Logs runs of your applicants, install the free PugLogs app: type |cffffd100/pl app|r for the link.")
 		end

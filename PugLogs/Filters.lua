@@ -1,4 +1,4 @@
--- Settings panel (Options > AddOns > PugLogs, or /pl filters): live lookups on/off and applicant filters.
+-- Settings panel (Options > AddOns > PugLogs, or /pl opt): live lookups on/off and applicant filters.
 -- Applicants who don't match are never sent to the companion, so they are never looked
 -- up and cost no API points. Their tooltip says why they were filtered out.
 local _, ns = ...

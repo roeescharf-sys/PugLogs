@@ -161,7 +161,7 @@ one; if nothing is timed, their highest run, marked "over". If PugLogs can't tel
 The percentile is the one Warcraft Logs shows on the log: DPS compared with the same spec at
 the same key level.
 
-### Settings (`/pl filters`, or Options → AddOns → PugLogs)
+### Settings (`/pl opt`, or Options → AddOns → PugLogs)
 - **Live Warcraft Logs lookups with the PugLogs app** - turn off if you only want "Check logs"
   and the filters; then no screenshots are taken. On by default only when the PugLogs app is
   installed (it adds a tiny "PugLogs (app)" addon so the addon can tell).
@@ -181,7 +181,7 @@ the same key level.
 | Command | |
 |---|---|
 | `/pl` | List the commands |
-| `/pl filters` | Open the filter settings |
+| `/pl opt` | Open the settings (live lookups and filters) |
 | `/pl wcl` | Open the Warcraft Logs API key page in the PugLogs app (to enter or change your key) |
 | `/pl paste` | Open the paste box (also: key binding in Options → Keybindings → AddOns) |
 | `/pl Name-Realm [dungeon]` | Link to a player's logs, e.g. `/pl Anna-Kazzak voidscar` |

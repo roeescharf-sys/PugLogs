@@ -130,7 +130,7 @@ end
 
 function ns.OpenPasteBox()
 	if not ns.LiveEnabled() then
-		ns.Print("Live lookups with the PugLogs app are off - turn them on in /pl filters.")
+		ns.Print("Live lookups with the PugLogs app are off - turn them on in /pl opt.")
 		return
 	end
 	-- The companion only touches the clipboard when you ask, and puts your own text back afterwards.
