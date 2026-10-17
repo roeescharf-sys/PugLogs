@@ -13,8 +13,8 @@ Hide the applicants you'd never take, straight from your applicant list:
 - **Minimum item level** and **minimum M+ rating**
 - **Roles** - e.g. no more healers once you have one
 - **Classes and specs** - tick exactly what you want
-- **Smart invites** - after you invite a Frost Mage, other Frost Mages are hidden for that
-  listing (undone if they decline, cleared when you delist)
+- **No duplicates** - classes or specs already in your group are hidden automatically, and
+  come back if that player leaves
 
 Hidden applicants simply disappear from your list - their tooltip tells you why if you turn
 hiding off. Filters work on their own, no extra app needed. Open them with `/pl filters`.

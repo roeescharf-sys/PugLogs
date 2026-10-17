@@ -7,8 +7,8 @@ checking the rest on Warcraft Logs means finding each character page, picking th
 and digging for a relevant run. PugLogs does both for you:
 
 - **Filters** hide applicants you'd never invite - minimum item level, minimum M+ rating, roles,
-  classes and specs - straight from your applicant list. After you invite someone, others with
-  the same spec (or class) are hidden for that listing. Filters work without the app.
+  classes and specs - straight from your applicant list. Specs (or classes) already in your group
+  are hidden too, and come back when that player leaves. Filters work without the app.
 - For every remaining applicant, it finds **their best timed run in the dungeon you listed, one key
   level below yours** (you list a +20 Murder Row, you see their best timed +19 Murder Row), with its
   **DPS and DPS percentile** - the same number Warcraft Logs shows on the log.
@@ -41,7 +41,7 @@ best timed +19
 ```
 
 Filtered players say why, e.g. `PugLogs: filtered out (item level 325 < 330)` or
-`you already invited a Frost Mage (Anna)`.
+`a Frost Mage is already in your group (Anna)`.
 
 ---
 
@@ -171,8 +171,9 @@ the same key level.
 - **Roles** they applied as, **classes** and **specs**
 - **Hide filtered applicants** from the Group Finder list (on by default). A group that applied
   together is hidden if any member doesn't match.
-- **After an invite, hide others with the same spec** (or class) - for the current listing only;
-  undone if they decline, cleared when you delist.
+- **Hide specs already in your group** (or whole classes) - you included. Updates as players join
+  or leave; someone who declines your invite never counts. Other players' specs come from what they
+  applied with, or from a quick background inspect.
 
 "Spec" is the spec a player is in when they apply, which can differ from the one they'd play.
 

@@ -19,10 +19,11 @@ local function Filters()
 	if f.hideFiltered == nil then
 		f.hideFiltered = true -- hide filtered applications from the Group Finder list
 	end
-	if f.inviteHidesSpec == nil then
-		f.inviteHidesSpec = true -- after an invite, hide others with that spec (this listing only)
+	if f.groupHidesSpec == nil then
+		f.groupHidesSpec = true -- hide applicants whose spec is already in your group
 	end
-	f.inviteHidesClass = f.inviteHidesClass or false
+	f.groupHidesClass = f.groupHidesClass or false -- ... or whose class is
+	f.inviteHidesSpec, f.inviteHidesClass = nil, nil -- replaced by the group rules above
 	return f
 end
 
@@ -46,14 +47,14 @@ function ns.FilterReason(applicant)
 		local _, specName = GetSpecializationInfoByID(applicant.specID)
 		return (specName or "spec") .. " not wanted"
 	end
-	-- Rules from people you invited for this listing (never applied to the invitees themselves).
-	if not applicant.invited and PugLogsDB.session then
-		for _, inv in pairs(PugLogsDB.session.invited) do
-			if f.inviteHidesSpec and inv.specID and inv.specID == applicant.specID then
-				return ("you already invited a %s (%s)"):format(inv.label, inv.name)
+	-- Classes/specs already in your group (never applied to someone you've invited).
+	if not applicant.invited then
+		for _, member in ipairs(ns.groupMembers or {}) do
+			if f.groupHidesClass and member.classFile == applicant.classFile then
+				return ("a %s is already in your group (%s)"):format(member.className, member.name)
 			end
-			if f.inviteHidesClass and inv.classFile and inv.classFile == applicant.classFile then
-				return ("you already invited a %s (%s)"):format(inv.className, inv.name)
+			if f.groupHidesSpec and member.specID and member.specID == applicant.specID then
+				return ("a %s is already in your group (%s)"):format(member.label, member.name)
 			end
 		end
 	end
@@ -150,75 +151,135 @@ local function Changed()
 	RefreshApplicantList()
 end
 
--- Invites for this listing ---------------------------------------------------------
--- PugLogsDB.session.invited: "applicantID:memberIdx" -> { classFile, specID, name, label, className, accepted }
+-- Your group ---------------------------------------------------------------------------
+-- ns.groupMembers: who is in your group (you included), with class and - when known - spec.
+-- Other players' specs come from what they applied with (remembered when you invite them)
+-- or from inspecting them in the background (WoW only reveals specs after an inspect).
 
-local function Session()
-	PugLogsDB.session = PugLogsDB.session or { invited = {} }
-	return PugLogsDB.session
+ns.groupMembers = {}
+local knownSpecs = {} -- "name-realm" (lowercase) -> specID
+local inspectQueue = {}
+local inspectBusy = false
+
+local function MemberKey(name, realm)
+	return (name .. "-" .. ((realm and realm ~= "") and realm or (GetNormalizedRealmName() or ""))):lower()
 end
 
-local GONE = { declined = true, declined_full = true, declined_delisted = true, timedout = true,
-	cancelled = true, invitedeclined = true, failed = true }
+local function SpecLabel(specID, className)
+	local specName = specID and select(2, GetSpecializationInfoByID(specID))
+	return specName and (specName .. " " .. className) or className
+end
 
+-- When you invite someone, remember the spec they applied with.
+local INVITED_OR_JOINED = { invited = true, inviteaccepted = true }
 local function OnApplicantUpdated(applicantID)
-	if applicantID == nil or ns.IsSecret(applicantID) or not ns.GetListingDungeon() then
+	if applicantID == nil or ns.IsSecret(applicantID) or not INVITED_OR_JOINED[ApplicationStatus(applicantID)] then
 		return
 	end
-	local f, session = Filters(), Session()
-	local status = ApplicationStatus(applicantID)
 	local info = C_LFGList.GetApplicantInfo(applicantID)
-	local changed = false
 	for memberIdx = 1, (info and Clean(info.numMembers)) or 0 do
-		local key = tostring(applicantID) .. ":" .. memberIdx
-		local entry = session.invited[key]
-		if INVITED[status] then
-			if not entry then
-				local fullName, classFile, className, _, _, _, _, _, _, _, _, _, _, _, _, specID =
-					C_LFGList.GetApplicantMemberInfo(applicantID, memberIdx)
-				fullName, classFile, specID = Clean(fullName), Clean(classFile), Clean(specID)
-				if fullName and classFile then
-					local specName
-					if specID then
-						specName = select(2, GetSpecializationInfoByID(specID))
-					end
-					className = Clean(className) or classFile
-					entry = { classFile = classFile, specID = specID, className = className,
-						name = (strsplit("-", fullName)), label = specName and (specName .. " " .. className) or className }
-					session.invited[key] = entry
-					changed = true
-					local hiding = (f.inviteHidesClass and className) or (f.inviteHidesSpec and entry.label)
-					if hiding then
-						ns.Print(("Invited %s - hiding other %s applicants until you delist."):format(entry.name, hiding))
-					end
+		local fullName, _, _, _, _, _, _, _, _, _, _, _, _, _, _, specID = C_LFGList.GetApplicantMemberInfo(applicantID, memberIdx)
+		fullName, specID = Clean(fullName), Clean(specID)
+		if fullName and specID and specID > 0 then
+			local name, realm = ns.SplitNameRealm(fullName)
+			knownSpecs[MemberKey(name, realm)] = specID
+		end
+	end
+end
+
+local function UnitSpecID(unit, key)
+	if UnitIsUnit(unit, "player") then
+		local index = GetSpecialization and GetSpecialization()
+		return index and (GetSpecializationInfo(index)) or nil
+	end
+	local inspected = GetInspectSpecialization and GetInspectSpecialization(unit)
+	if inspected and not ns.IsSecret(inspected) and inspected > 0 then
+		knownSpecs[key] = inspected
+	end
+	return knownSpecs[key]
+end
+
+local RebuildGroup
+
+local function InspectNext()
+	if inspectBusy or InCombatLockdown() then
+		return
+	end
+	local unit = table.remove(inspectQueue, 1)
+	if not unit then
+		return
+	end
+	if UnitExists(unit) and CanInspect(unit) then
+		inspectBusy = true
+		NotifyInspect(unit)
+		C_Timer.After(2, function() -- don't wait forever for INSPECT_READY
+			if inspectBusy then
+				inspectBusy = false
+				InspectNext()
+			end
+		end)
+	else
+		InspectNext()
+	end
+end
+
+function RebuildGroup()
+	local members, before = {}, {}
+	for _, m in ipairs(ns.groupMembers) do
+		before[m.key] = m
+	end
+	local units = { "player" }
+	if not IsInRaid() then
+		for i = 1, GetNumSubgroupMembers() do
+			units[#units + 1] = "party" .. i
+		end
+	end
+	for _, unit in ipairs(units) do
+		if UnitExists(unit) then
+			local name, realm = UnitName(unit)
+			local className, classFile = UnitClass(unit)
+			name, realm, className, classFile = Clean(name), Clean(realm), Clean(className), Clean(classFile)
+			if name and classFile then
+				local key = MemberKey(name, realm)
+				local specID = UnitSpecID(unit, key)
+				members[#members + 1] = { key = key, name = name, classFile = classFile, className = className,
+					specID = specID, label = SpecLabel(specID, className) }
+				if not specID and unit ~= "player" then
+					inspectQueue[#inspectQueue + 1] = unit
 				end
 			end
-			if entry and status == "inviteaccepted" then
-				entry.accepted = true
-			end
-		elseif entry and not entry.accepted and GONE[status] then
-			session.invited[key] = nil -- they declined or the invite expired
+		end
+	end
+	ns.groupMembers = members
+
+	-- Tell what changed (while listing a key), then refresh the applicant list.
+	local f, changed, now = Filters(), false, {}
+	local me = MemberKey(UnitName("player"))
+	for _, m in ipairs(members) do
+		now[m.key] = m
+		local old = before[m.key]
+		if not old or old.specID ~= m.specID then
 			changed = true
-			ns.Print(("%s didn't join - showing %s applicants again."):format(entry.name, entry.label))
+			-- Announce once we know what gets hidden: their class, or their spec once it's known.
+			local hiding = (f.groupHidesClass and (not old) and m.className)
+				or (f.groupHidesSpec and not f.groupHidesClass and m.specID and m.label)
+			if hiding and m.key ~= me and ns.GetListingDungeon() then
+				ns.Print(("%s is in your group - hiding other %s applicants."):format(m.name, hiding))
+			end
+		end
+	end
+	for key, m in pairs(before) do
+		if not now[key] then
+			changed = true
+			if ns.GetListingDungeon() and (f.groupHidesSpec or f.groupHidesClass) then
+				ns.Print(("%s left - showing %s applicants again."):format(m.name, f.groupHidesClass and m.className or m.label))
+			end
 		end
 	end
 	if changed then
 		Changed()
 	end
-end
-
-local function OnListingChanged()
-	if C_LFGList.GetActiveEntryInfo() then
-		return
-	end
-	local session = PugLogsDB and PugLogsDB.session
-	if session and next(session.invited) then
-		ns.Print("Listing ended - spec/class hiding from invites is cleared.")
-	end
-	if PugLogsDB then
-		PugLogsDB.session = nil
-	end
-	Changed()
+	InspectNext()
 end
 
 -- Options panel ----------------------------------------------------------------------
@@ -314,15 +375,15 @@ local function BuildPanel(panel)
 	hideNote:SetPoint("TOPLEFT", hide, "BOTTOMLEFT", 28, 0)
 	hideNote:SetText("A group that applied together is hidden if any member doesn't match.")
 
-	local inviteSpec = CreateCheckbox(panel, "When you invite someone, hide other applicants with the same spec",
-		f.inviteHidesSpec, function(on) f.inviteHidesSpec = on; Changed() end)
-	inviteSpec:SetPoint("TOPLEFT", hideNote, "BOTTOMLEFT", -28, -10)
-	local inviteClass = CreateCheckbox(panel, "... or with the same class", f.inviteHidesClass,
-		function(on) f.inviteHidesClass = on; Changed() end)
-	inviteClass:SetPoint("TOPLEFT", inviteSpec, "BOTTOMLEFT", 0, -2)
+	local groupSpec = CreateCheckbox(panel, "Hide applicants whose spec is already in your group",
+		f.groupHidesSpec, function(on) f.groupHidesSpec = on; Changed() end)
+	groupSpec:SetPoint("TOPLEFT", hideNote, "BOTTOMLEFT", -28, -10)
+	local groupClass = CreateCheckbox(panel, "... or whose class is already in your group", f.groupHidesClass,
+		function(on) f.groupHidesClass = on; Changed() end)
+	groupClass:SetPoint("TOPLEFT", groupSpec, "BOTTOMLEFT", 0, -2)
 	local inviteNote = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-	inviteNote:SetPoint("TOPLEFT", inviteClass, "BOTTOMLEFT", 28, 0)
-	inviteNote:SetText("Only for the current listing: undone if they decline, cleared when you delist.")
+	inviteNote:SetPoint("TOPLEFT", groupClass, "BOTTOMLEFT", 28, 0)
+	inviteNote:SetText("Includes you. Updates as people join or leave - someone who declines your invite never counts.")
 
 	local roleHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
 	roleHeader:SetPoint("TOPLEFT", inviteNote, "BOTTOMLEFT", -24, -16)
@@ -413,20 +474,29 @@ end)
 local events = CreateFrame("Frame")
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("LFG_LIST_APPLICANT_UPDATED")
-events:RegisterEvent("LFG_LIST_ACTIVE_ENTRY_UPDATE")
+events:RegisterEvent("GROUP_ROSTER_UPDATE")
+events:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+events:RegisterEvent("INSPECT_READY")
+events:RegisterEvent("PLAYER_REGEN_ENABLED")
 events:SetScript("OnEvent", function(_, event, arg1)
 	if event == "LFG_LIST_APPLICANT_UPDATED" then
 		OnApplicantUpdated(arg1)
 		return
-	elseif event == "LFG_LIST_ACTIVE_ENTRY_UPDATE" then
-		OnListingChanged()
+	elseif event == "INSPECT_READY" then
+		inspectBusy = false
+		RebuildGroup()
+		return
+	elseif event == "PLAYER_REGEN_ENABLED" then
+		InspectNext() -- inspects wait until combat ends
+		return
+	elseif event ~= "PLAYER_LOGIN" then -- GROUP_ROSTER_UPDATE, PLAYER_SPECIALIZATION_CHANGED
+		RebuildGroup()
 		return
 	end
 	Filters()
 	HookApplicantList()
-	if not C_LFGList.GetActiveEntryInfo() then
-		PugLogsDB.session = nil -- the listing ended while you were logged out
-	end
+	PugLogsDB.session = nil -- from older versions (invite-based hiding)
+	RebuildGroup()
 	if Settings and Settings.RegisterCanvasLayoutCategory then
 		category = Settings.RegisterCanvasLayoutCategory(panel, "PugLogs")
 		Settings.RegisterAddOnCategory(category)
