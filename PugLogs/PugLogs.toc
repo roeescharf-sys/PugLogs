@@ -5,6 +5,7 @@
 ## Author: Roee
 ## X-License: MIT
 ## X-Website: https://github.com/roeescharf-sys/PugLogs
+## X-Curse-Project-ID: 1749845
 ## Version: 0.8.1
 ## SavedVariables: PugLogsDB
 

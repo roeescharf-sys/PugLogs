@@ -13,11 +13,15 @@ The app tells its users when a new version is out.
 
 ## One-time setup: CurseForge (about 10 minutes, plus their review)
 
+> Done: project created (ID **1749845**, https://www.curseforge.com/wow/addons/puglogs once approved);
+> `CURSEFORGE_PROJECT_ID` is set. Remaining: the `CF_API_KEY` secret (step 5-6).
+
 1. Log in (or sign up) at **https://authors.curseforge.com** with your CurseForge account.
 2. **Create a project**: game **World of Warcraft**, class **Addons**.
    - Name: `PugLogs`
    - Summary: `Warcraft Logs runs for your Mythic+ applicants, right in the Group Finder.`
-   - Description: paste `docs/curseforge-description.md`
+   - Description: switch the editor to **Markdown** first, then paste `docs/curseforge-description.md`
+     (the default visual editor caused "request entity too large")
    - Category: **Tooltip** (if extra categories are allowed: **Data Export** or **Miscellaneous**)
    - License: **MIT License**
    - Logo / avatar image: `docs/images/logo.png` (1024x1024; `logo-400.png` if a smaller one is needed)
