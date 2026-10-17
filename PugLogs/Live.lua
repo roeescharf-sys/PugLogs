@@ -72,10 +72,39 @@ local COPY_TIME = 1.2 -- seconds the companion needs after the request's screens
 local GIVE_UP_AFTER = 15 -- seconds without the request getting through
 local readyTimer
 local ready = false
+local requestCodes = 1 -- QR codes in the current request (more codes take the companion longer)
+local retries = 0
+local MAX_RETRIES = 3
 
 local function SetHint(text, r, g, b)
 	pasteFrame.hint:SetText(text)
 	pasteFrame.hint:SetTextColor(r or 1, g or 1, b or 1)
+end
+
+-- After "Ready", a paste that isn't the answer to this box's request (your own clipboard,
+-- a screenshot, older results) asks the companion again, so pressing Cmd+V once more works.
+local function StartFallback()
+	if readyTimer then
+		readyTimer:Cancel()
+	end
+	-- "Ready" comes from ns.OnPasteRequestDone once the request really went out; this is a fallback.
+	readyTimer = C_Timer.NewTimer(GIVE_UP_AFTER, function()
+		readyTimer = nil
+		ready = true
+		SetHint(("Taking long - press %s to try, or click Copy for WoW in the PugLogs window."):format(PASTE_KEY), 1, 0.7, 0.3)
+	end)
+end
+
+local function AskAgain(why)
+	if retries >= MAX_RETRIES then
+		SetHint(why .. (" Click Copy for WoW in the PugLogs window, then press %s."):format(PASTE_KEY), 1, 0.4, 0.3)
+		return
+	end
+	retries = retries + 1
+	ready = false
+	SetHint(why .. " Getting the results again...", 1, 0.7, 0.3)
+	StartFallback()
+	ns.RequestCopy()
 end
 
 local function OnPasted(editBox)
@@ -90,7 +119,7 @@ local function OnPasted(editBox)
 		local preview = text:sub(1, 40):gsub("|", "||")
 		ns.Print(("Paste box got %d characters that aren't PugLogs results, starting: %s"):format(#text, preview))
 		if ready then
-			SetHint(("That was your own clipboard - is the PugLogs window running? Press %s to try again."):format(PASTE_KEY), 1, 0.4, 0.3)
+			AskAgain("That wasn't PugLogs results.")
 		else
 			SetHint(("Not ready yet - wait for \"Ready\", then press %s."):format(PASTE_KEY), 1, 0.7, 0.3)
 		end
@@ -99,8 +128,12 @@ local function OnPasted(editBox)
 	-- Only accept the answer to this box's own request: anything else on the clipboard is
 	-- older results (e.g. from a previous paste) and would hide newer applicants.
 	local stale = data.request and ns.lastPasteRequest and data.request ~= ns.lastPasteRequest
-	if stale or not ready then
-		SetHint(("Those were older results - wait for \"Ready\", then press %s."):format(PASTE_KEY), 1, 0.7, 0.3)
+	if not ready then
+		SetHint(("Not ready yet - wait for \"Ready\", then press %s."):format(PASTE_KEY), 1, 0.7, 0.3)
+		return
+	end
+	if stale then
+		AskAgain("Those were older results.")
 		return
 	end
 	PugLogsDB.liveData = data -- also kept through /reload
@@ -163,19 +196,25 @@ function ns.OpenPasteBox()
 	pasteFrame = pasteFrame or CreatePasteFrame()
 	pasteFrame.editBox:SetText("")
 	ready = false
+	retries = 0
 	SetHint("Getting the latest results...", 0.7, 0.7, 0.7)
-	if readyTimer then
-		readyTimer:Cancel()
-	end
-	-- "Ready" comes from ns.OnPasteRequestDone once the request really went out; this is a fallback.
-	readyTimer = C_Timer.NewTimer(GIVE_UP_AFTER, function()
-		readyTimer = nil
-		ready = true
-		SetHint(("Taking long - press %s to try, or click Copy for WoW in the PugLogs window."):format(PASTE_KEY), 1, 0.7, 0.3)
-	end)
+	StartFallback()
 	pasteFrame:Show()
 	pasteFrame.editBox:SetFocus()
 	ns.RequestCopy()
+end
+
+-- Progress of the paste box's request, from Transport.lua, so you can see where it is.
+function ns.OnPasteRequestStatus(stage, codes)
+	if not (pasteFrame and pasteFrame:IsShown()) or ready then
+		return
+	end
+	if stage == "queued" then
+		SetHint("Waiting for the current update to finish...", 0.7, 0.7, 0.7)
+	elseif stage == "sending" then
+		requestCodes = codes or 1
+		SetHint(("Sending the request%s..."):format(codes and codes > 1 and (" (" .. codes .. " codes)") or ""), 0.7, 0.7, 0.7)
+	end
 end
 
 -- Called by Transport.lua when the paste box's request was saved as a screenshot (delivered)
@@ -193,7 +232,9 @@ function ns.OnPasteRequestDone(delivered)
 		SetHint("Couldn't send the request - is the PugLogs window running? Try again.", 1, 0.4, 0.3)
 		return
 	end
-	readyTimer = C_Timer.NewTimer(COPY_TIME, function()
+	SetHint("Waiting for the PugLogs window...", 0.7, 0.7, 0.7)
+	-- The companion reads each code in turn before copying.
+	readyTimer = C_Timer.NewTimer(COPY_TIME + 0.6 * (requestCodes - 1), function()
 		readyTimer = nil
 		ready = true
 		SetHint(("Ready - press %s"):format(PASTE_KEY), 0.3, 1, 0.4)

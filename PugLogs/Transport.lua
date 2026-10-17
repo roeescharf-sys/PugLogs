@@ -451,6 +451,9 @@ function ns.SendRequest(flag)
 	end
 	if pages then
 		queuedRequest = flag -- sent right after the running capture
+		if flag == "R" and ns.OnPasteRequestStatus then
+			ns.OnPasteRequestStatus("queued")
+		end
 		return
 	end
 	if not CanCapture() then
@@ -477,6 +480,9 @@ function ns.SendRequest(flag)
 	end
 	pagesFlag = flag
 	pageIndex = 0
+	if flag == "R" and ns.OnPasteRequestStatus then
+		ns.OnPasteRequestStatus("sending", #pages)
+	end
 	BeginCapture()
 	CaptureNextPage()
 end
