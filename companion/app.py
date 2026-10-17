@@ -18,6 +18,7 @@ import export
 import inbox
 import installer
 import lookup
+import payload
 import updates
 import wcl
 import window
@@ -39,6 +40,37 @@ WEB_DIR = os.path.join(RESOURCE_DIR, "web")
 SEASON_ZONE_ID = 55
 
 
+def load_filters(values=None):
+    """The window's filters with defaults filled in (from the saved settings by default)."""
+    values = values if values is not None else (window.get_setting("filters") or {})
+    old_min = window.get_setting("minRating", 0) or 0  # from before there were more filters
+    def ints(key, default=0):
+        try:
+            return max(0, int(values.get(key, default) or 0))
+        except (TypeError, ValueError):
+            return default
+    def names(key):
+        return sorted({str(v) for v in values.get(key) or []})
+    return {"minItemLevel": ints("minItemLevel"), "minRating": ints("minRating", old_min),
+            "excludedRoles": names("excludedRoles"), "excludedClasses": names("excludedClasses"),
+            "excludedSpecs": names("excludedSpecs")}  # specs as "CLASS:position", e.g. "MAGE:3"
+
+
+def filter_reason(member, f):
+    """Why the window's filters hide this applicant, or None."""
+    if f["minItemLevel"] and member.item_level < f["minItemLevel"]:
+        return "item level"
+    if f["minRating"] and member.score < f["minRating"]:
+        return "rating"
+    if member.role and member.role in f["excludedRoles"]:
+        return "role"
+    if member.class_file in f["excludedClasses"]:
+        return "class"
+    if member.spec_index and f"{member.class_file}:{member.spec_index}" in f["excludedSpecs"]:
+        return "spec"
+    return None
+
+
 class State:
     def __init__(self):
         self.lock = threading.Lock()
@@ -52,7 +84,7 @@ class State:
         self.setup_requested = False # /pl wcl in WoW: show the page to change the key
         self.wow_missing = False     # WoW folder not found: the window asks for it
         self.update = None           # {"version", "url"} when a newer PugLogs is released
-        self.min_rating = int(window.get_setting("minRating", 0) or 0)  # set in the window
+        self.filters = load_filters()  # the window's own filters (see filter_reason)
         self.sort_by = window.get_setting("sortBy", "applied")  # window list order
         self._pages = {}             # batch -> {page number: Page}
         self.auto_copy = False       # off: only copy when the paste box in WoW asks
@@ -83,7 +115,7 @@ class State:
                 lst = self.listing or {}
                 rkey = result_key(m, lst.get("encounterId"), lst.get("key"))
                 result = self.results.get(rkey) or {"status": "pending"}
-                if result["status"] == "belowRating":
+                if filter_reason(m, self.filters):
                     below += 1
                     continue
                 applications.setdefault(m.application_id, []).append({
@@ -98,7 +130,9 @@ class State:
                 "updatedAt": self.updated_at,
                 "applications": [{"id": k, "members": v} for k, v in applications.items()],
                 "rate": _lookup.estimated_rate() if _lookup else self.rate,
-                "minRating": self.min_rating,
+                "filters": self.filters,
+                "specs": [{"class": c, "name": payload.CLASS_NAMES[c], "specs": names}
+                          for c, names in payload.SPECS.items()],
                 "sortBy": self.sort_by,
                 "belowRating": below,
                 "messages": list(self.messages),
@@ -138,12 +172,9 @@ def on_page(page):
         window.bring_to_front()
         state.log("Showing the Warcraft Logs API key page")
         return
-    if "R" in page.flags:
-        # The paste box in WoW was opened: copy the results we already have, right away.
-        if copy_for_wow(force=True, restore=True):
-            state.log("Results copied for WoW - press Cmd+V in the paste box")
-        else:
-            state.log("Paste box opened, but there are no results to copy yet")
+    if "R" in page.flags and not page.encounter_id:
+        # The paste box in WoW was opened (older addon, or no listing): copy what we have.
+        copy_for_paste_box()
         return
     done = state.add_page(page)
     if not done:
@@ -162,13 +193,38 @@ def on_page(page):
     for m in new:
         rkey = result_key(m, page.encounter_id, page.key_level)
         with state.lock:
-            if state.min_rating and m.score < state.min_rating:
-                state.results[rkey] = {"status": "belowRating"}  # hidden, never looked up
+            if filter_reason(m, state.filters):
+                state.results[rkey] = {"status": "skipped"}  # hidden, never looked up
                 continue
             state.results[rkey] = {"status": "pending"}
         queue_job(1, ("lookup", rkey, m, page.region, page.encounter_id, page.key_level))
-    if not new and work.empty():
+    if "R" in page.flags:
+        # The paste box was opened with the current applicant list: give anyone who just
+        # applied a few seconds to be looked up, then copy.
+        threading.Thread(target=copy_for_paste_box, args=(PASTE_WAIT,), daemon=True).start()
+    elif not new and work.empty():
         copy_for_wow()
+
+
+PASTE_WAIT = 4  # seconds the paste box waits for new applicants' lookups
+
+
+def lookups_in_progress():
+    with state.lock:
+        lst = state.listing or {}
+        return sum(1 for m in state.members
+                   if (state.results.get(result_key(m, lst.get("encounterId"), lst.get("key"))) or {})
+                   .get("status") in ("pending", "loading"))
+
+
+def copy_for_paste_box(wait=0):
+    deadline = time.time() + wait
+    while time.time() < deadline and lookups_in_progress():
+        time.sleep(0.1)
+    if copy_for_wow(force=True, restore=True):
+        state.log("Results copied for WoW - press Cmd+V in the paste box")
+    else:
+        state.log("Paste box opened, but there are no results to copy yet")
 
 
 def copy_for_wow(force=False, restore=False):
@@ -190,26 +246,27 @@ def copy_for_wow(force=False, restore=False):
     return True
 
 
-def set_min_rating(value):
-    """From the window: hide (and don't look up) applicants below this M+ rating."""
-    value = max(0, int(value))
-    window.set_setting("minRating", value)
+def set_filters(new):
+    """From the window: hide (and don't look up) applicants who don't match."""
+    filters = load_filters(new)
+    window.set_setting("filters", filters)
     jobs = []
     with state.lock:
-        state.min_rating = value
+        state.filters = filters
         lst = state.listing or {}
         for m in state.members:
             rkey = result_key(m, lst.get("encounterId"), lst.get("key"))
             status = (state.results.get(rkey) or {}).get("status")
-            if value and m.score < value and status in (None, "pending", "waiting"):
-                state.results[rkey] = {"status": "belowRating"}
+            hidden = filter_reason(m, filters)
+            if hidden and status in (None, "pending", "waiting"):
+                state.results[rkey] = {"status": "skipped"}
                 state.waiting.pop(rkey, None)
-            elif status == "belowRating" and not (value and m.score < value):
+            elif status == "skipped" and not hidden:
                 state.results[rkey] = {"status": "pending"}
                 jobs.append(("lookup", rkey, m, lst.get("region"), lst.get("encounterId"), lst.get("key")))
     for job in jobs:
         queue_job(1, job)
-    return value
+    return filters
 
 
 def describe_error(e):
@@ -226,7 +283,7 @@ def describe_error(e):
 
 def do_lookup(lk, rkey, member, region, encounter_id, key_level):
     with state.lock:
-        if (state.results.get(rkey) or {}).get("status") == "belowRating":
+        if (state.results.get(rkey) or {}).get("status") == "skipped":
             return  # filtered out while it was waiting in the queue
         state.results[rkey] = {"status": "loading"}
     try:
@@ -307,8 +364,8 @@ class Handler(BaseHTTPRequestHandler):
                 with state.lock:
                     state.sort_by = value
                 reply = {"sortBy": value}
-            elif self.path == "/api/minrating":
-                reply = {"minRating": set_min_rating(body.get("value") or 0)}
+            elif self.path == "/api/filters":
+                reply = {"filters": set_filters(body)}
             elif self.path == "/api/ontop":
                 window.set_on_top(bool(body["on"]))
                 reply = {"onTop": window.is_on_top()}

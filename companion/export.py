@@ -20,10 +20,13 @@ def build(listing, members, results, result_key):
     if not listing or not listing.get("encounterId"):
         return None
     records = []
+    pending = 0
     for m in members:
         result = results.get(result_key(m, listing["encounterId"], listing.get("key")))
         who = _clean(f"{m.name}-{m.realm_slug}")
         if not result or result.get("status") not in ("done", "nodata"):
+            if not result or result.get("status") in ("pending", "loading"):
+                pending += 1
             continue
         if result["status"] == "nodata":
             records.append(f"{who},0")
@@ -36,6 +39,8 @@ def build(listing, members, results, result_key):
             _clean(result.get("reason", "")),
         ]
         records.append(",".join(fields))
+    if pending:
+        records.append(f"!pending,{pending}")  # still being looked up
     head = ["PLR1", str(listing["encounterId"]), str(listing.get("key") or 0), _clean(listing.get("dungeon", ""))]
     return ";".join(head + records)
 

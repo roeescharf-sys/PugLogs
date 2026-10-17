@@ -35,7 +35,9 @@ local function Parse(text)
 	for i = 5, #parts do
 		local f = { strsplit(",", parts[i]) }
 		local who = f[1]
-		if who and who ~= "" then
+		if who == "!pending" then
+			data.pending = Num(f[2]) or 0 -- applicants the companion was still looking up
+		elseif who and who ~= "" then
 			local key = Num(f[2]) or 0
 			data.players[who:lower()] = key == 0 and { none = true } or {
 				key = key,
@@ -60,7 +62,7 @@ ns.ParseLiveData = Parse -- used by tests
 -- Paste box ------------------------------------------------------------------------
 
 local PASTE_KEY = IsMacClient() and "Cmd+V" or "Ctrl+V"
-local READY_AFTER = 1.5 -- seconds; about how long the companion needs to copy the results
+local READY_AFTER = 3 -- seconds; the companion first looks up anyone new, then copies
 local readyTimer
 
 local function SetHint(text, r, g, b)
@@ -84,6 +86,9 @@ local function OnPasted(editBox)
 	pasteFrame:Hide()
 	ns.Print(("Loaded %d player(s) for %s%s. Hover over applicants to see their run."):format(
 		data.count, data.dungeon ~= "" and data.dungeon or "?", data.keyLevel > 0 and (" +" .. data.keyLevel) or ""))
+	if (data.pending or 0) > 0 then
+		ns.Print(("%d more still loading - paste again in a moment."):format(data.pending))
+	end
 end
 
 local function CreatePasteFrame()

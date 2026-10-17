@@ -495,6 +495,31 @@ local function BuildPanel(panel)
 	classNote:SetPoint("LEFT", classHeader, "RIGHT", 10, 0)
 	classNote:SetText("Spec = the spec they are in when applying, which can differ from what they'd play.")
 
+	-- Select all / Clear all for every class and spec at once.
+	local rows = {} -- { box, classFile, specs = { { box, specID } } }
+	local function SetAll(on)
+		for _, row in ipairs(rows) do
+			f.excludedClasses[row.classFile] = not on or nil
+			row.box:SetChecked(on)
+			for _, spec in ipairs(row.specs) do
+				f.excludedSpecs[spec.specID] = not on or nil
+				spec.box:SetChecked(on)
+				spec.box:SetEnabled(on)
+			end
+		end
+		Changed()
+	end
+	local selectAll = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+	selectAll:SetSize(100, 22)
+	selectAll:SetText("Select all")
+	selectAll:SetPoint("TOPLEFT", classHeader, "BOTTOMLEFT", 0, -6)
+	selectAll:SetScript("OnClick", function() SetAll(true) end)
+	local clearAll = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+	clearAll:SetSize(100, 22)
+	clearAll:SetText("Clear all")
+	clearAll:SetPoint("LEFT", selectAll, "RIGHT", 8, 0)
+	clearAll:SetScript("OnClick", function() SetAll(false) end)
+
 	local anchor = classHeader
 	for classID = 1, NUM_CLASSES do
 		local className, classFile = GetClassInfo(classID)
@@ -509,8 +534,11 @@ local function BuildPanel(panel)
 				end
 				Changed()
 			end)
-			classBox:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", anchor == classHeader and -4 or 0, -2)
+			classBox:SetPoint("TOPLEFT", anchor == classHeader and selectAll or anchor, "BOTTOMLEFT",
+				anchor == classHeader and -4 or 0, anchor == classHeader and -6 or -2)
 			anchor = classBox
+			local row = { box = classBox, classFile = classFile, specs = {} }
+			rows[#rows + 1] = row
 
 			local specPrev
 			for index = 1, NumSpecs(classID) do
@@ -523,6 +551,7 @@ local function BuildPanel(panel)
 					box:SetPoint("LEFT", specPrev or classBox, "RIGHT", specPrev and 100 or 130, 0)
 					box:SetEnabled(not f.excludedClasses[classFile])
 					specBoxes[#specBoxes + 1] = box
+					row.specs[#row.specs + 1] = { box = box, specID = specID }
 					specPrev = box
 				end
 			end

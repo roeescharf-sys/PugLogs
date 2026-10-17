@@ -11,11 +11,10 @@ local MAX_PAGE_BYTES = 350 -- keeps each code small; big queues use several code
 local DEBOUNCE = 1.5       -- seconds to wait for more applicant changes before capturing
 local EC_LEVEL = 2         -- QR error correction level M
 local SETTLE_FRAMES = 2    -- rendered frames the code is on screen before the screenshot
--- "subtle" (default): dark grey on near-black, needs lossless (TGA) screenshots while the code
--- is up. "classic": black on white, works with any screenshot format. /pl qr subtle|classic
--- module = screen pixels per QR square: 1 needs a lossless screenshot; 2 survives JPG.
+-- "subtle" (default): dark grey on near-black. "classic": black on white. /pl qr subtle|classic
+-- module = screen pixels per QR square (2 survives JPG screenshots).
 local STYLES = {
-	subtle = { background = 0.05, squares = 0.11, module = 1 },
+	subtle = { background = 0.05, squares = 0.11, module = 2 },
 	classic = { background = 1, squares = 0, module = 2 },
 }
 local FAILSAFE = 4         -- give up on a capture if WoW doesn't report the screenshot
@@ -100,6 +99,25 @@ local CLASS_IDS = {
 }
 local ROLE_CODES = { TANK = "T", HEALER = "H", DAMAGER = "D" }
 
+-- specID -> its position within the class (1-4), the order the companion knows spec names in.
+local specPosition
+local function SpecPosition(specID)
+	if not specPosition then
+		specPosition = {}
+		for classID = 1, 13 do
+			local count = C_SpecializationInfo and C_SpecializationInfo.GetNumSpecializationsForClassID
+				and C_SpecializationInfo.GetNumSpecializationsForClassID(classID) or 0
+			for index = 1, count do
+				local id = GetSpecializationInfoForClassID(classID, index)
+				if id then
+					specPosition[id] = index
+				end
+			end
+		end
+	end
+	return specID and specPosition[specID] or 0
+end
+
 -- Collecting applicants ----------------------------------------------------------
 
 local function Clean(value)
@@ -133,7 +151,7 @@ local function CollectApplicants()
 		local status = info and Clean(info.applicationStatus)
 		if status == "applied" or status == "invited" then
 			for memberIdx = 1, (Clean(info.numMembers) or 0) do
-				local fullName, classFile, _, _, itemLevel, _, _, _, _, assignedRole, _, score =
+				local fullName, classFile, _, _, itemLevel, _, _, _, _, assignedRole, _, score, _, _, _, specID =
 					C_LFGList.GetApplicantMemberInfo(applicantID, memberIdx)
 				fullName, classFile = Clean(fullName), Clean(classFile)
 				itemLevel, score = math.floor(Clean(itemLevel) or 0), math.floor(Clean(score) or 0)
@@ -146,7 +164,7 @@ local function CollectApplicants()
 						local name, realm = ns.SplitNameRealm(fullName)
 						lines[#lines + 1] = table.concat({
 							index, name, ns.GetRealmSlug(realm), CLASS_IDS[classFile] or 0,
-							ROLE_CODES[assignedRole or ""] or "", itemLevel, score,
+							ROLE_CODES[assignedRole or ""] or "", itemLevel, score, SpecPosition(Clean(specID)),
 						}, "\t")
 					end
 				end
@@ -156,7 +174,7 @@ local function CollectApplicants()
 	return dungeon, lines, filtered
 end
 
-local function BuildPages(dungeon, lines, filtered)
+local function BuildPages(dungeon, lines, filtered, flags)
 	batchCounter = batchCounter + 1
 	local batch = GetServerTime() .. "-" .. batchCounter
 	local encounterID = dungeon and dungeon.wclEncounterID or 0
@@ -177,7 +195,7 @@ local function BuildPages(dungeon, lines, filtered)
 	local result = {}
 	for i, chunk in ipairs(chunks) do
 		-- 9th field: flags ("R" = copy request), 10th: how many applicants your filters hid
-		local header = table.concat({ "PL2", batch, i, #chunks, ns.REGION, encounterID, keyLevel, dungeonName, "", filtered or 0 }, "\t")
+		local header = table.concat({ "PL2", batch, i, #chunks, ns.REGION, encounterID, keyLevel, dungeonName, flags or "", filtered or 0 }, "\t")
 		result[i] = header .. (#chunk > 0 and ("\n" .. table.concat(chunk, "\n")) or "")
 	end
 	return result
@@ -218,19 +236,13 @@ local function FinishCapture()
 	end
 end
 
--- Screenshot settings for a capture; restored by FinishCapture. The subtle style needs a
--- lossless format - if WoW won't switch to TGA, use the classic black-and-white code.
+-- Screenshot settings for a capture; restored by FinishCapture. Ordinary JPG screenshots at
+-- the highest quality: the faint 2-pixel code survives them, and they are small (lossless TGA
+-- screenshots are ~40 MB at 5K and made the game stutter).
 local function BeginCapture()
 	savedQuality = GetCVar("screenshotQuality")
 	SetCVar("screenshotQuality", "10")
-	style = STYLES.classic
-	if (PugLogsDB.qrStyle or "subtle") == "subtle" then
-		savedFormat = GetCVar("screenshotFormat")
-		SetCVar("screenshotFormat", "tga")
-		if GetCVar("screenshotFormat") == "tga" then
-			style = STYLES.subtle
-		end
-	end
+	style = (PugLogsDB.qrStyle == "classic") and STYLES.classic or STYLES.subtle
 end
 
 -- Takes the screenshot after the code has been drawn for a couple of frames, then hides the
@@ -386,8 +398,10 @@ function ns.OnFiltersChanged()
 	ScheduleSend()
 end
 
--- Sends a request to the companion as one tiny code with no players:
---   "R" = put the results on the clipboard (the paste box), "S" = show the API key page.
+-- Sends a request to the companion:
+--   "R" = put the results on the clipboard (the paste box). It carries the current applicant
+--         list, so players who applied a moment ago are looked up before the copy.
+--   "S" = show the API key page (one tiny code, no players).
 function ns.SendRequest(flag)
 	if not ns.LiveEnabled() then
 		ns.Print("Live lookups with the PugLogs app are off - turn them on in /pl opt.")
@@ -401,8 +415,17 @@ function ns.SendRequest(flag)
 		ns.Print("Can't reach the PugLogs window in combat or during a key - try again after.")
 		return
 	end
-	batchCounter = batchCounter + 1
-	pages = { table.concat({ "PL2", "req-" .. GetServerTime() .. "-" .. batchCounter, 1, 1, ns.REGION, 0, 0, "", flag }, "\t") }
+	local dungeon, lines, filtered
+	if flag == "R" then
+		dungeon, lines, filtered = CollectApplicants()
+	end
+	if dungeon then
+		lastSignature = (dungeon.name or "-") .. "\n" .. filtered .. "\n" .. table.concat(lines, "\n")
+		pages = BuildPages(dungeon, lines, filtered, flag)
+	else
+		batchCounter = batchCounter + 1
+		pages = { table.concat({ "PL2", "req-" .. GetServerTime() .. "-" .. batchCounter, 1, 1, ns.REGION, 0, 0, "", flag }, "\t") }
+	end
 	pageIndex = 0
 	BeginCapture()
 	CaptureNextPage()

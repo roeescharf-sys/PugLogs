@@ -21,7 +21,15 @@
   .meter > div { height: 100%; background: var(--good); }
   .meter.warn > div { background: #e0a14f; } .meter.full > div { background: var(--bad); }
   #sortBy { background: var(--bg); color: var(--text); border: 1px solid #3a404b; border-radius: 4px; padding: 2px 4px; font: inherit; }
-  #minRating { width: 64px; background: var(--bg); color: var(--text); border: 1px solid #3a404b; border-radius: 4px; padding: 2px 6px; font: inherit; }
+  #filters { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; display: grid; gap: 10px; }
+  #filters[hidden] { display: none; }
+  #filters .row { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
+  #filters input[type=text] { width: 64px; background: var(--bg); color: var(--text); border: 1px solid #3a404b; border-radius: 4px; padding: 2px 6px; font: inherit; }
+  #filters label { cursor: pointer; white-space: nowrap; }
+  #filters h3 { margin: 0; font-size: 13px; color: var(--accent); }
+  .classes { display: grid; grid-template-columns: 130px repeat(4, max-content); gap: 2px 16px; align-items: center; }
+  .classes .cls { font-weight: 600; }
+  .classes label.off { opacity: .45; }
   .copy { margin-left: auto; display: flex; gap: 10px; align-items: center; }
   .copy[hidden] { display: none; }
   .copy label { color: var(--dim); cursor: pointer; }
@@ -86,12 +94,32 @@
     <label title="Order of the applicant list">sort <select id="sortBy">
       <option value="applied">applied order</option><option value="role">role</option>
       <option value="rating">M+ rating</option><option value="log">log</option></select></label>
-    <label title="Applicants below this M+ rating are hidden and not looked up (empty = any)">min rating <input id="minRating" inputmode="numeric" placeholder="any"></label>
+    <button class="btn" id="filtersBtn" type="button" title="Hide applicants in this window (they aren't looked up)">Filters</button>
     <label id="onTopLabel" hidden title="Keep the PugLogs window above WoW (play WoW in windowed mode)"><input type="checkbox" id="onTop"> keep on top</label>
   </span>
 </header>
 <main>
   <div id="update" hidden></div>
+  <section id="filters" hidden>
+    <div class="row">
+      <h3>Window filters</h3>
+      <span class="meta">Hidden applicants aren't looked up. Separate from the addon's filters in WoW (/pl opt).</span>
+    </div>
+    <div class="row">
+      <label>min item level <input type="text" id="fIlvl" inputmode="numeric" placeholder="any"></label>
+      <label>min M+ rating <input type="text" id="fRating" inputmode="numeric" placeholder="any"></label>
+      <span class="meta">roles:</span>
+      <label><input type="checkbox" data-role="TANK"> Tank</label>
+      <label><input type="checkbox" data-role="HEALER"> Healer</label>
+      <label><input type="checkbox" data-role="DAMAGER"> DPS</label>
+    </div>
+    <div class="row">
+      <span class="meta">classes and specs:</span>
+      <button class="btn" id="fAll" type="button">Select all</button>
+      <button class="btn" id="fNone" type="button">Clear all</button>
+    </div>
+    <div class="classes" id="fClasses"></div>
+  </section>
   <section id="wowdir" class="panel" hidden>
     <h2>Where is World of Warcraft?</h2>
     <p>PugLogs couldn't find your World of Warcraft folder. Choose the folder WoW is installed in -
@@ -239,13 +267,12 @@ async function refresh() {
   }
   const l = s.listing;
   document.getElementById("listing").textContent = l
-    ? (l.dungeon ? `${l.dungeon}${l.key ? " +" + l.key : ""}${l.filtered ? ` · ${l.filtered} filtered out` : ""}${s.belowRating ? ` · ${s.belowRating} below your rating` : ""}` : "No active listing")
+    ? (l.dungeon ? `${l.dungeon}${l.key ? " +" + l.key : ""}${l.filtered ? ` · ${l.filtered} filtered out` : ""}${s.belowRating ? ` · ${s.belowRating} hidden by window filters` : ""}` : "No active listing")
     : "Waiting for the addon...";
   document.getElementById("updated").textContent = s.updatedAt ? `updated ${new Date(s.updatedAt*1000).toLocaleTimeString()}` : "";
   const r = s.rate || {};
   showRate(r);
-  const mr = document.getElementById("minRating");
-  if (document.activeElement !== mr) mr.value = s.minRating ? s.minRating : "";
+  renderFilters(s);
   const sel = document.getElementById("sortBy");
   if (document.activeElement !== sel) sel.value = s.sortBy || "applied";
   document.getElementById("apps").innerHTML = sortApplications(s.applications, sel.value).map(a =>
@@ -303,13 +330,55 @@ document.getElementById("sortBy").addEventListener("change", async e => {
   e.target.blur();
   refresh();
 });
-document.getElementById("minRating").addEventListener("change", async e => {
-  const value = parseInt(e.target.value, 10) || 0;
-  await fetch("/api/minrating", { method: "POST", body: JSON.stringify({ value }) });
-  e.target.blur();
+// Window filters --------------------------------------------------------------------
+let filters = null, specsList = [];
+function renderFilters(s) {
+  if (!s.filters) return;
+  const panel = document.getElementById("filters");
+  if (panel.contains(document.activeElement) && document.activeElement.type === "text") return; // typing
+  filters = s.filters; specsList = s.specs || [];
+  document.getElementById("fIlvl").value = filters.minItemLevel || "";
+  document.getElementById("fRating").value = filters.minRating || "";
+  for (const box of panel.querySelectorAll("[data-role]")) box.checked = !filters.excludedRoles.includes(box.dataset.role);
+  const grid = document.getElementById("fClasses");
+  if (!grid.childElementCount) {
+    grid.innerHTML = specsList.map(c => `<label class="cls" style="color:${CLASS_COLORS[c.class]}"><input type="checkbox" data-class="${c.class}"> ${esc(c.name)}</label>`
+      + c.specs.map((n, i) => `<label><input type="checkbox" data-spec="${c.class}:${i + 1}"> ${esc(n)}</label>`).join("")
+      + "<span></span>".repeat(4 - c.specs.length)).join("");
+  }
+  for (const box of grid.querySelectorAll("[data-class]")) box.checked = !filters.excludedClasses.includes(box.dataset.class);
+  for (const box of grid.querySelectorAll("[data-spec]")) {
+    box.checked = !filters.excludedSpecs.includes(box.dataset.spec);
+    const classOn = !filters.excludedClasses.includes(box.dataset.spec.split(":")[0]);
+    box.disabled = !classOn;
+    box.parentElement.classList.toggle("off", !classOn);
+  }
+}
+async function saveFilters() {
+  const panel = document.getElementById("filters");
+  const body = {
+    minItemLevel: parseInt(document.getElementById("fIlvl").value, 10) || 0,
+    minRating: parseInt(document.getElementById("fRating").value, 10) || 0,
+    excludedRoles: [...panel.querySelectorAll("[data-role]")].filter(b => !b.checked).map(b => b.dataset.role),
+    excludedClasses: [...panel.querySelectorAll("[data-class]")].filter(b => !b.checked).map(b => b.dataset.class),
+    excludedSpecs: [...panel.querySelectorAll("[data-spec]")].filter(b => !b.checked).map(b => b.dataset.spec),
+  };
+  await fetch("/api/filters", { method: "POST", body: JSON.stringify(body) });
+  if (document.activeElement && document.activeElement.type === "text") document.activeElement.blur();
   refresh();
+}
+document.getElementById("filtersBtn").addEventListener("click", () => {
+  const panel = document.getElementById("filters");
+  panel.hidden = !panel.hidden;
 });
-document.getElementById("minRating").addEventListener("keydown", e => { if (e.key === "Enter") e.target.blur(); });
+document.getElementById("filters").addEventListener("change", saveFilters);
+for (const id of ["fIlvl", "fRating"]) document.getElementById(id).addEventListener("keydown", e => { if (e.key === "Enter") e.target.blur(); });
+function setAllClasses(on) {
+  for (const box of document.querySelectorAll("#fClasses input")) box.checked = on;
+  saveFilters();
+}
+document.getElementById("fAll").addEventListener("click", () => setAllClasses(true));
+document.getElementById("fNone").addEventListener("click", () => setAllClasses(false));
 document.getElementById("onTop").addEventListener("change", async e => {
   await fetch("/api/ontop", { method: "POST", body: JSON.stringify({ on: e.target.checked }) });
   refresh();
