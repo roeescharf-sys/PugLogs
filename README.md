@@ -162,6 +162,9 @@ Only runs in the **role they applied as** are considered (a healing run says lit
 someone plays DPS). If they have no logs in that role, their run in another role is shown with a
 red warning; a run in another spec of the same role gets an orange note.
 
+Players who hid their rankings on Warcraft Logs are shown as **"Logs hidden"** (not "no logs") and
+always listed at the bottom of the window, whatever the sort.
+
 The percentile is the one Warcraft Logs shows on the log: DPS compared with the same spec at
 the same key level.
 

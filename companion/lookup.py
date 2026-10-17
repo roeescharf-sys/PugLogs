@@ -17,7 +17,7 @@ RATE_CHECK_EVERY = 600    # seconds between checks of the remaining points (each
 POINTS_RESERVE = 15       # leave this much of the hourly limit unused
 LOOKUP_COST = 1.1         # measured: ~1 point per player lookup
 TIMED_MEDALS = {"gold", "silver", "bronze"}
-CACHE_VERSION = 2         # bump when the stored run data changes meaning
+CACHE_VERSION = 3         # bump when the stored run data changes meaning
 
 
 def percent(run):
@@ -27,6 +27,7 @@ def percent(run):
 
 RANKS_QUERY = """query($name: String, $realm: String, $region: String, $enc: Int) {
   characterData { character(name: $name, serverSlug: $realm, serverRegion: $region) {
+    hidden
     encounterRankings(encounterID: $enc, metric: dps, byBracket: true)
   } }
 }"""
@@ -117,13 +118,21 @@ class Lookup:
         self._spent_since_check += LOOKUP_COST
         character = data["characterData"]["character"]
         ranks = (character or {}).get("encounterRankings", {}).get("ranks", []) if character else None
-        self.cache.players[key] = {"at": time.time(), "ranks": ranks}
+        self.cache.players[key] = {"at": time.time(), "ranks": ranks,
+                                   "hidden": bool(character and character.get("hidden"))}
         return ranks
+
+    def is_hidden(self, member, region, encounter_id):
+        """True if the player hid their rankings on Warcraft Logs (from the last lookup)."""
+        return bool((self.cache.players.get(f"{member.key}-{region}-{encounter_id}") or {}).get("hidden"))
 
     def look_up(self, member, region, encounter_id, key_level=0):
         """Returns {"featured", "reason"}: the member's one run to show for this dungeon and key level.
-        None if they have no logs in this dungeon. Only this dungeon (encounter_id) is ever requested."""
+        None if they have no logs in this dungeon, {"hidden": True} if they hid their logs.
+        Only this dungeon (encounter_id) is ever requested."""
         ranks = self.player_runs(member, region, encounter_id)
+        if self.is_hidden(member, region, encounter_id):
+            return {"hidden": True}
         ranks = [r for r in ranks or [] if r.get("report", {}).get("fightID") is not None]
         if not ranks:
             return None

@@ -7,7 +7,8 @@
 --   PLR1;encounterID;keyLevel;dungeonName;record;record;...
 --   record = name-realmslug,key,timed,seconds,dps,percent,interrupts,dispels,deaths,damageTaken,reason,
 --            runSpec,specMismatch   (0 = same spec, 1 = other spec same role, 2 = different role)
---   (stats fields are empty when not loaded; "name-realmslug,0" = no logs in this dungeon)
+--   (stats fields are empty when not loaded; "name-realmslug,0" = no logs in this dungeon,
+--    "name-realmslug,0,hidden" = they hid their rankings on Warcraft Logs)
 local _, ns = ...
 
 local MAGIC = "PLR1"
@@ -40,7 +41,7 @@ local function Parse(text)
 			data.pending = Num(f[2]) or 0 -- applicants the companion was still looking up
 		elseif who and who ~= "" then
 			local key = Num(f[2]) or 0
-			data.players[who:lower()] = key == 0 and { none = true } or {
+			data.players[who:lower()] = key == 0 and { none = true, hidden = f[3] == "hidden" } or {
 				key = key,
 				timed = f[3] == "1",
 				seconds = Num(f[4]),
@@ -306,6 +307,8 @@ local function AddApplicantLines(applicantID, memberIdx)
 	GameTooltip:AddLine("PugLogs - " .. data.dungeon, 0, 0.8, 1)
 	if not entry then
 		GameTooltip:AddLine("Not loaded yet - paste again from the PugLogs window.", 0.6, 0.6, 0.6)
+	elseif entry.hidden then
+		GameTooltip:AddLine("Logs hidden - they hid their rankings on Warcraft Logs.", 1, 0.7, 0.28, true)
 	elseif entry.none then
 		GameTooltip:AddLine("No logs in this dungeon this season.", 0.6, 0.6, 0.6)
 	else

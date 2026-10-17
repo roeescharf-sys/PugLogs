@@ -305,7 +305,12 @@ def do_lookup(lk, rkey, member, region, encounter_id, key_level):
         state.results[rkey] = {"status": "loading"}
     try:
         found = lk.look_up(member, region, encounter_id, key_level)
-        result = {"status": "nodata"} if not found else {"status": "done", "playerName": member.name, **found}
+        if not found:
+            result = {"status": "nodata"}
+        elif found.get("hidden"):
+            result = {"status": "hidden"}
+        else:
+            result = {"status": "done", "playerName": member.name, **found}
     except (lookup.BudgetError, wcl.RateLimited) as e:
         # Out of API points (or briefly refused): wait, then look them up automatically.
         wait = 60 if isinstance(e, wcl.RateLimited) else (lk.estimated_rate().get("pointsResetIn") or 300) + 5

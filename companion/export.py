@@ -25,9 +25,12 @@ def build(listing, members, results, result_key):
     for m in members:
         result = results.get(result_key(m, listing["encounterId"], listing.get("key")))
         who = _clean(f"{m.name}-{m.realm_slug}")
-        if not result or result.get("status") not in ("done", "nodata"):
+        if not result or result.get("status") not in ("done", "nodata", "hidden"):
             if not result or result.get("status") in ("pending", "loading"):
                 pending += 1
+            continue
+        if result["status"] == "hidden":
+            records.append(f"{who},0,hidden")  # older addons read this as "no logs"
             continue
         if result["status"] == "nodata":
             records.append(f"{who},0")

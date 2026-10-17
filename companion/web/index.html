@@ -228,6 +228,7 @@ function memberHtml(m) {
   let body;
   if (m.status === "done") body = runTable(m);
   else if (m.status === "nodata") body = `<div class="status">No logs in this dungeon this season.</div>`;
+  else if (m.status === "hidden") body = `<div class="status">Logs hidden - this player hid their rankings on Warcraft Logs.</div>`;
   else if (m.status === "error") body = `<div class="error">${esc(m.error)}</div>`;
   else if (m.status === "waiting") body = `<div class="status">Hourly API limit reached - looks up automatically at ${new Date(m.retryAt*1000).toLocaleTimeString()}</div>`;
   else body = `<div class="status">${m.status === "loading" ? "Looking up..." : "Waiting..."}</div>`;
@@ -238,16 +239,18 @@ function memberHtml(m) {
     </div>${body}</div>`;
 }
 
-// Sorting: groups stay together and are ranked by their best member.
+// Sorting: groups stay together and are ranked by their best member. Applications whose
+// players all hid their logs always go to the bottom, whatever the sort.
 const ROLE_ORDER = { TANK: 0, HEALER: 1, DAMAGER: 2 };
 function sortApplications(apps, by) {
   const key = {
     role: a => Math.min(...a.members.map(m => ROLE_ORDER[m.role] ?? 3)),
     rating: a => -Math.max(...a.members.map(m => m.score || 0)),
     log: a => -Math.max(...a.members.map(m => (m.featured && m.featured.percent != null) ? m.featured.percent : -1)),
-  }[by];
-  if (!key) return apps;
-  return apps.map((a, i) => [key(a), i, a]).sort((x, y) => x[0] - y[0] || x[1] - y[1]).map(x => x[2]);
+  }[by] || (() => 0);
+  const hidden = a => a.members.every(m => m.status === "hidden") ? 1 : 0;
+  return apps.map((a, i) => [hidden(a), key(a), i, a])
+    .sort((x, y) => x[0] - y[0] || x[1] - y[1] || x[2] - y[2]).map(x => x[3]);
 }
 
 // API points meter: used/total, and a countdown to the hourly reset (ticks every second).
