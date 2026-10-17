@@ -223,6 +223,13 @@ end
 
 local SendNow
 local queuedRequest -- a request flag waiting for the running capture to finish
+
+-- Paste-request tracing in chat (/pl debug on|off) while the paste flow is being tested.
+local function Trace(text)
+	if PugLogsDB and PugLogsDB.debugPaste ~= false then
+		ns.Print("|cff888888[paste] " .. text .. "|r")
+	end
+end
 local lastProgressAt -- GetTime() when the running capture last drew a code
 local pagesFlag -- request flag carried by the running capture ("R" = paste box), if any
 local STALE_AFTER = FAILSAFE + 3
@@ -231,6 +238,9 @@ local STALE_AFTER = FAILSAFE + 3
 local function FinishCapture(delivered)
 	local flag = pagesFlag
 	pagesFlag = nil
+	if flag == "R" then
+		Trace(delivered and "request screenshot(s) saved" or "request capture ended WITHOUT saving")
+	end
 	pages, pageIndex = nil, 0
 	if flag == "R" and ns.OnPasteRequestDone then
 		-- Tell the paste box whether its request reached the screenshot folder.
@@ -239,6 +249,9 @@ local function FinishCapture(delivered)
 	if queuedRequest then
 		local flag = queuedRequest
 		queuedRequest = nil
+		if flag == "R" then
+			Trace("update finished - sending the waiting request")
+		end
 		C_Timer.After(0.2, function() ns.SendRequest(flag) end)
 	end
 	verbose = false
@@ -445,6 +458,10 @@ end
 --         list, so players who applied a moment ago are looked up before the copy.
 --   "S" = show the API key page (one tiny code, no players).
 function ns.SendRequest(flag)
+	if flag == "R" then
+		Trace(("request: pages=%s waiting=%s live=%s"):format(tostring(pages and #pages), tostring(queuedRequest),
+			tostring(ns.LiveEnabled())))
+	end
 	ClearStaleCapture(true)
 	if not ns.LiveEnabled() then
 		ns.Print("Live lookups with the PugLogs app are off - turn them on in /pl opt.")
@@ -452,6 +469,9 @@ function ns.SendRequest(flag)
 	end
 	if pages then
 		queuedRequest = flag -- sent right after the running capture
+		if flag == "R" then
+			Trace("busy with an update - request waits for it")
+		end
 		if flag == "R" and ns.OnPasteRequestStatus then
 			pcall(ns.OnPasteRequestStatus, "queued")
 		end
@@ -459,6 +479,7 @@ function ns.SendRequest(flag)
 	end
 	if not CanCapture() then
 		ns.Print("Can't reach the PugLogs window in combat or during a key - try again after.")
+		Trace("not sent: in combat or a key")
 		if flag == "R" and ns.OnPasteRequestDone then
 			pcall(ns.OnPasteRequestDone, false)
 		end
@@ -481,8 +502,11 @@ function ns.SendRequest(flag)
 	end
 	pagesFlag = flag
 	pageIndex = 0
-	if flag == "R" and ns.OnPasteRequestStatus then
-		pcall(ns.OnPasteRequestStatus, "sending", #pages)
+	if flag == "R" then
+		Trace(("sending %d code(s), id %s, %d player(s)"):format(#pages, tostring(ns.lastPasteRequest), #(lines or {})))
+		if ns.OnPasteRequestStatus then
+			pcall(ns.OnPasteRequestStatus, "sending", #pages)
+		end
 	end
 	BeginCapture()
 	CaptureNextPage()
@@ -510,6 +534,10 @@ function ns.HandleLiveSlash(msg)
 	elseif msg == "wcl" or msg == "key" or msg == "setup" then
 		ns.SendRequest("S")
 		ns.Print("Opening the Warcraft Logs API key page in PugLogs. If nothing opens, start the PugLogs app first.")
+		return true
+	elseif msg == "debug on" or msg == "debug off" then
+		PugLogsDB.debugPaste = (msg == "debug on")
+		ns.Print("Paste debug lines " .. (PugLogsDB.debugPaste and "on." or "off."))
 		return true
 	elseif msg == "test" then
 		ClearStaleCapture(true)
