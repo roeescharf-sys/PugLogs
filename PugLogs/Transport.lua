@@ -149,24 +149,31 @@ local function CollectApplicants()
 	for index, applicantID in ipairs(applicants) do
 		local info = C_LFGList.GetApplicantInfo(applicantID)
 		local status = info and Clean(info.applicationStatus)
-		if status == "applied" or status == "invited" then
-			for memberIdx = 1, (Clean(info.numMembers) or 0) do
+		local numMembers = Clean(info and info.numMembers) or 0
+		-- A group with any filtered player is left out as a whole, like the Group Finder list
+		-- hides it (Filters.lua); otherwise its other players would show up in the window alone.
+		local groupFiltered = false
+		for memberIdx = 1, numMembers do
+			if ns.ApplicantFilterReason(applicantID, memberIdx) then
+				groupFiltered = true
+				break
+			end
+		end
+		if (status == "applied" or status == "invited") and groupFiltered then
+			filtered = filtered + numMembers -- not sent, so never looked up
+		elseif status == "applied" or status == "invited" then
+			for memberIdx = 1, numMembers do
 				local fullName, classFile, _, _, itemLevel, _, _, _, _, assignedRole, _, score, _, _, _, specID =
 					C_LFGList.GetApplicantMemberInfo(applicantID, memberIdx)
 				fullName, classFile = Clean(fullName), Clean(classFile)
 				itemLevel, score = math.floor(Clean(itemLevel) or 0), math.floor(Clean(score) or 0)
 				assignedRole = Clean(assignedRole)
 				if fullName and classFile then
-					local reason = ns.ApplicantFilterReason(applicantID, memberIdx)
-					if reason then
-						filtered = filtered + 1 -- not sent, so never looked up
-					else
-						local name, realm = ns.SplitNameRealm(fullName)
-						lines[#lines + 1] = table.concat({
-							index, name, ns.GetRealmSlug(realm), CLASS_IDS[classFile] or 0,
-							ROLE_CODES[assignedRole or ""] or "", itemLevel, score, SpecPosition(Clean(specID)),
-						}, "\t")
-					end
+					local name, realm = ns.SplitNameRealm(fullName)
+					lines[#lines + 1] = table.concat({
+						index, name, ns.GetRealmSlug(realm), CLASS_IDS[classFile] or 0,
+						ROLE_CODES[assignedRole or ""] or "", itemLevel, score, SpecPosition(Clean(specID)),
+					}, "\t")
 				end
 			end
 		end
