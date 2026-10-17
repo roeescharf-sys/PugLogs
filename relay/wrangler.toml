@@ -1,0 +1,12 @@
+name = "puglogs-reports"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+
+# At most 3 reports per minute from one address.
+[[ratelimits]]
+name = "REPORT_LIMITER"
+namespace_id = "1001"
+simple = { limit = 3, period = 60 }
+
+# The Discord webhook address is a secret, set with:
+#   npx wrangler secret put DISCORD_WEBHOOK_URL

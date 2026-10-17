@@ -210,8 +210,15 @@ the same key level.
 ## Privacy
 
 - Your API key and the lookup cache live only in `~/.config/puglogs/` on your computer.
-- The companion talks only to Warcraft Logs (the names and realms it looks up). Its window talks
-  to it over a connection that only works on your own computer. Nothing else is sent anywhere.
+- The companion talks to Warcraft Logs (the names and realms it looks up) and checks GitHub for
+  new PugLogs versions. Its window talks to it over a connection that only works on your own
+  computer.
+- **Error reports** are sent only when you choose to: with *Send report* / *Send to developer*,
+  or automatically if you ticked *send errors automatically* (off until you do). They go to the
+  developer's private Discord channel and contain the PugLogs version, your system, the error and
+  what PugLogs was doing (which may include an applicant's character name); manual reports also
+  include the end of the log. Your computer's username and your API key are removed first.
+  Nothing else is sent anywhere.
 - PugLogs screenshots are deleted as soon as they are read. Old ones left from times the companion
   wasn't running are deleted (not used) on the next start.
 
@@ -248,9 +255,11 @@ companion/            the program (Python)
   inbox.py            reads QR screenshots
   wcl.py              Warcraft Logs API client
   clipboard.py        clipboard on macOS and Windows
+  report.py           error log and error reports
   installer.py        installs/updates the addon in WoW
   build.py            builds the downloads (PyInstaller)
   run.sh / run.bat    start scripts (running from source)
+relay/                error-report relay (Cloudflare Worker -> private Discord channel)
 docs/api-costs.md     measured API costs
 tools/gen_realms.py   regenerates the EU realm table
 ```

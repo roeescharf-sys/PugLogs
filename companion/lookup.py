@@ -142,22 +142,32 @@ class Lookup:
         }
 
 
+def level(run):
+    """A run's key level. Warcraft Logs sometimes sends it as null, so treat that as 0."""
+    return run.get("bracketData") or 0
+
+
 def pick_featured(ranks, key_level):
     """The run to show: their best timed run one key below yours (or the closest to it)."""
+    # Runs without a key level can't be compared with your key; use them only if nothing else.
+    ranks = [r for r in ranks if level(r)] or ranks
+    if not any(level(r) for r in ranks):
+        timed = [r for r in ranks if r.get("medal") in TIMED_MEDALS]
+        return max(timed or ranks, key=lambda r: percent(r) or 0), "key level unknown"
     timed = [r for r in ranks if r.get("medal") in TIMED_MEDALS]
-    best = lambda runs: max(runs, key=lambda r: (r.get("bracketData", 0), percent(r) or 0))
+    best = lambda runs: max(runs, key=lambda r: (level(r), percent(r) or 0))
     if not timed:
         return best(ranks), "no timed runs"
     if not key_level:
         return best(timed), "highest timed"
     target = key_level - 1
-    below = [r for r in timed if r.get("bracketData", 0) <= target]
+    below = [r for r in timed if level(r) <= target]
     if below:
         run = best(below)
-        return run, ("best timed +%d" % run["bracketData"])
-    above = [r for r in timed if r.get("bracketData", 0) > target]
-    lowest = min(r.get("bracketData", 0) for r in above)
-    run = best([r for r in above if r.get("bracketData") == lowest])
+        return run, ("best timed +%d" % level(run))
+    above = [r for r in timed if level(r) > target]
+    lowest = min(level(r) for r in above)
+    run = best([r for r in above if level(r) == lowest])
     return run, "closest timed (above your key)"
 
 

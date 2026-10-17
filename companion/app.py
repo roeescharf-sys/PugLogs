@@ -12,6 +12,7 @@ import queue
 import sys
 import threading
 import time
+import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import export
@@ -19,6 +20,7 @@ import inbox
 import installer
 import lookup
 import payload
+import report
 import updates
 import wcl
 import window
@@ -93,7 +95,7 @@ class State:
         self.waiting = {}            # rkey -> lookup job, retried when the hourly limit resets
 
     def log(self, text):
-        print(text, flush=True)
+        print(f"{time.strftime('%H:%M:%S')} {text}", flush=True)
         with self.lock:
             self.messages.appendleft({"at": time.time(), "text": text})
 
@@ -140,6 +142,10 @@ class State:
                 "wowMissing": self.wow_missing,
                 "setupRequested": self.setup_requested,
                 "version": updates.current_version(),
+                "errorCount": report.error_count(),
+                "canSendReport": bool(report.RELAY_URL),
+                "autoReport": bool(window.get_setting("autoReport", False)),
+                "lastError": last_error_for_window(),
                 "update": self.update,
                 "inWindow": window.available() and not HEADLESS,
                 "onTop": window.is_on_top(),
@@ -297,9 +303,65 @@ def do_lookup(lk, rkey, member, region, encounter_id, key_level):
         with state.lock:
             state.waiting[rkey] = (retry_at, ("lookup", rkey, member, region, encounter_id, key_level))
     except Exception as e:
+        if not isinstance(e, wcl.WCLError):  # Warcraft Logs' own errors are expected; bugs aren't
+            report.record(f"looking up {member.name}-{member.realm_slug} "
+                          f"(dungeon {encounter_id}, key +{key_level})")
         result = {"status": "error", "error": describe_error(e)}
     with state.lock:
         state.results[rkey] = result
+
+
+def report_context():
+    with state.lock:
+        lst = state.listing or {}
+        rate = dict(state.rate or {})
+        messages = [f"{time.strftime('%H:%M:%S', time.localtime(m['at']))} {m['text']}"
+                    for m in reversed(state.messages)]
+        statuses = collections.Counter((r or {}).get("status") for r in state.results.values())
+    context = [
+        f"Listing: {lst.get('dungeon') or 'none'}" + (f" +{lst['key']}" if lst.get("key") else "")
+        + f" (region {lst.get('region', '?')})",
+        f"Lookups: {dict(statuses) or 'none'}",
+        f"API: {rate.get('pointsSpentThisHour', '?')}/{rate.get('limitPerHour', '?')} points this hour",
+    ]
+    return context, messages
+
+
+def build_report():
+    context, messages = report_context()
+    return report.build(updates.current_version(), context, messages)
+
+
+AUTO_REPORTS_PER_SESSION = 10   # never flood the developer's channel from one computer
+
+
+def send_error_report(error, automatic):
+    """Sends one error (short report, no log) to the developer. Returns (ok, message)."""
+    context, _ = report_context()
+    text = report.build_single(updates.current_version(), context, error)
+    ok, message = report.send(text, updates.current_version(),
+                              note="Sent automatically" if automatic else "Sent with one click")
+    report.mark_sent(error, "sent" if ok else f"failed: {message}")
+    state.log(f"Error report {'sent' if ok else 'not sent'}: {message}")
+    return ok, message
+
+
+_auto_sent = 0
+
+
+def on_new_error(error):
+    """Sends new errors automatically when the player chose that; otherwise the window asks."""
+    global _auto_sent
+    if not (report.RELAY_URL and window.get_setting("autoReport", False)):
+        return
+    if report.already_sent(error) or _auto_sent >= AUTO_REPORTS_PER_SESSION:
+        report.mark_sent(error, "sent" if report.already_sent(error) else "skipped")
+        return
+    _auto_sent += 1
+    threading.Thread(target=send_error_report, args=(dict(error), True), daemon=True).start()
+
+
+report.on_new_error = on_new_error
 
 
 def retry_waiting():
@@ -340,6 +402,14 @@ def worker(lk):
             state.log(f"Could not save cache: {e}")
 
 
+def last_error_for_window():
+    error = report.last_error()
+    if not error:
+        return None
+    return {"message": report.message(error), "where": report._redact(error["where"]),
+            "at": error["at"], "sent": error["sent"]}
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
@@ -356,6 +426,37 @@ class Handler(BaseHTTPRequestHandler):
                 reply = {"ok": True}
             elif self.path == "/api/wowdir":
                 reply = choose_wow_dir(body.get("path"))
+            elif self.path == "/api/report":
+                copied, path = report.save_and_copy(build_report())
+                reply = {"copied": copied, "path": path}
+            elif self.path == "/api/report/github":
+                copied, path = report.save_and_copy(build_report())
+                url = report.github_issue_url(updates.current_version())
+                webbrowser.open(url)
+                reply = {"copied": copied, "path": path, "url": url}
+            elif self.path == "/api/report/last":
+                error = report.last_error()
+                if not error:
+                    reply = {"ok": False, "message": "No error to send."}
+                elif body.get("action") == "dismiss":
+                    report.mark_sent(error, "skipped")
+                    reply = {"ok": True, "message": ""}
+                else:
+                    ok, message = send_error_report(error, automatic=False)
+                    reply = {"ok": ok, "message": message}
+            elif self.path == "/api/autoreport":
+                window.set_setting("autoReport", bool(body["on"]))
+                error = report.last_error()
+                if body["on"] and error and not error["sent"]:
+                    threading.Thread(target=send_error_report, args=(error, True), daemon=True).start()
+                reply = {"autoReport": bool(body["on"])}
+            elif self.path == "/api/report/send":
+                text = build_report()
+                report.save_and_copy(text)
+                ok, message = report.send(text, updates.current_version(),
+                                          str(body.get("note", "")), str(body.get("contact", "")))
+                state.log(f"Error report {'sent' if ok else 'not sent'}: {message}")
+                reply = {"ok": ok, "message": message}
             elif self.path == "/api/update":
                 reply = {"started": start_update()}
             elif self.path == "/api/sort":
@@ -490,7 +591,7 @@ def set_up_api_client(client_id, secret):
 
 
 HEADLESS = "--no-window" in sys.argv or "--no-browser" in sys.argv  # server only (tests)
-LOG_FILE = os.path.expanduser("~/.config/puglogs/puglogs.log")
+LOG_FILE = report.LOG_FILE
 
 
 def use_wow_dir(wow_dir):
@@ -559,9 +660,11 @@ def main():
 
 
 def run():
+    report.install_hooks()
     if getattr(sys, "frozen", False):
         # The packaged app has no console: keep a log file for troubleshooting.
         os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+        report.rotate_log()
         try:
             log = open(LOG_FILE, "w", encoding="utf-8", buffering=1)
         except OSError:  # Windows: another PugLogs may hold the file open
