@@ -56,6 +56,9 @@
   #update a { color: var(--accent); font-weight: 600; }
   #version { color: var(--dim); font-size: 12px; margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
   #reportBtn, #githubBtn, #sendBtn { font-size: 12px; }
+  .specRole { color: #ff6b5b; font-weight: 600; }
+  .specOther { color: #ffb347; }
+  .specWarn { margin: 4px 0 2px; }
   #errorBar { background: #2a1a1a; border: 1px solid var(--bad); border-radius: 8px; padding: 8px 12px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
   #errorBar[hidden] { display: none; }
   #errorBar label { cursor: pointer; white-space: nowrap; }
@@ -204,13 +207,19 @@ const pclass = p => p == null ? "" : p >= 100 ? "p100" : p >= 99 ? "p99" : p >= 
 function runTable(m) {
   const r = m.featured;
   return `<div class="scroll"><table>
-    <tr><th>Key</th><th>Time</th><th>Damage</th><th></th></tr>
+    <tr><th>Key</th><th>Time</th><th>Damage</th><th>Spec</th><th></th></tr>
     <tr>
       <td><a href="${esc(r.url)}" target="_blank" rel="noopener" title="Open this log (Damage Done)">+${esc(r.key ?? "?")}</a></td>
       <td class="${r.timed ? "timed" : "over"}">${time(r.duration)} ${r.timed ? "timed" : "over"}</td>
       <td class="${pclass(r.percent)}">${num(r.dps)} DPS${r.percent != null ? ` (${Math.floor(r.percent)})` : ""}</td>
-      <td class="meta">${esc(r.spec)} · ${r.date ? ago(r.date) : ""}</td>
+      <td class="${m.specMismatch === 2 ? "specRole" : m.specMismatch === 1 ? "specOther" : ""}">${esc(r.spec || "?")}</td>
+      <td class="meta">${r.date ? ago(r.date) : ""}</td>
     </tr></table></div>
+    ${m.specMismatch === 2
+      ? `<div class="specWarn specRole">⚠ This run was as ${esc(r.spec)} (${esc(m.runRole)}) - they applied as ${esc(m.spec)} (${esc(ROLE[m.role] || "?")}). Its damage doesn't show how they play ${esc(m.spec)}.</div>`
+      : m.specMismatch === 1
+      ? `<div class="specWarn specOther">This run was as ${esc(r.spec)} - they applied as ${esc(m.spec)}.</div>`
+      : ""}
     <div class="meta reason">${esc(m.reason)}</div>`;
 }
 

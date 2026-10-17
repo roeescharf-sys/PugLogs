@@ -13,8 +13,8 @@ The app tells its users when a new version is out.
 
 ## One-time setup: CurseForge (about 10 minutes, plus their review)
 
-> Done: project created (ID **1749845**, https://www.curseforge.com/wow/addons/puglogs once approved);
-> `CURSEFORGE_PROJECT_ID` is set. Remaining: the `CF_API_KEY` secret (step 5-6).
+> Done: project created (ID **1749845**, https://www.curseforge.com/wow/addons/puglogs) and set up -
+> every release since 0.9.2 was uploaded automatically. The steps below are kept for reference.
 
 1. Log in (or sign up) at **https://authors.curseforge.com** with your CurseForge account.
 2. **Create a project**: game **World of Warcraft**, class **Addons**.

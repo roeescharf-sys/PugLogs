@@ -213,9 +213,19 @@ end
 
 local SendNow
 local queuedRequest -- a request flag waiting for the running capture to finish
+local lastProgressAt -- GetTime() when the running capture last drew a code
+local pagesFlag -- request flag carried by the running capture ("R" = paste box), if any
+local STALE_AFTER = FAILSAFE + 3
 
-local function FinishCapture()
+-- delivered: every screenshot of this capture was saved (so the companion can read it now).
+local function FinishCapture(delivered)
+	local flag = pagesFlag
+	pagesFlag = nil
 	pages, pageIndex = nil, 0
+	if flag == "R" and ns.OnPasteRequestDone then
+		-- Tell the paste box whether its request reached the screenshot folder.
+		C_Timer.After(0, function() ns.OnPasteRequestDone(delivered) end)
+	end
 	if queuedRequest then
 		local flag = queuedRequest
 		queuedRequest = nil
@@ -261,14 +271,16 @@ frameWaiter:SetScript("OnUpdate", function(self)
 	if self.frames < SETTLE_FRAMES then
 		return
 	end
+	-- Mark that we're waiting before asking: WoW can report the screenshot during the call.
+	awaitingShot = true
+	self.shotTaken = true
 	local shotOK, err = pcall(Screenshot)
 	if not shotOK then
+		awaitingShot = false
 		self:Hide()
 		ns.Print("Screenshot failed: " .. tostring(err))
 		return
 	end
-	self.shotTaken = true
-	awaitingShot = true
 	if verbose then
 		ns.Print("Screenshot requested.")
 	end
@@ -278,7 +290,7 @@ local function CaptureNextPage()
 	pageIndex = pageIndex + 1
 	local text = pages and pages[pageIndex]
 	if not text then
-		FinishCapture()
+		FinishCapture(true)
 		return
 	end
 	local ok, matrix = ns.qrcode(text, EC_LEVEL)
@@ -287,6 +299,7 @@ local function CaptureNextPage()
 		FinishCapture()
 		return
 	end
+	lastProgressAt = GetTime()
 	DrawMatrix(matrix)
 	qrFrame.bg:SetColorTexture(style.background, style.background, style.background, 1)
 	qrFrame:Show()
@@ -310,8 +323,26 @@ local function CaptureNextPage()
 	end)
 end
 
+-- A capture that hasn't moved for a while (e.g. WoW never reported its screenshot) is
+-- abandoned, so it can't block later updates and paste requests forever.
+-- dropQueued: the caller is a request about to be sent itself, so a waiting one isn't needed.
+local function ClearStaleCapture(dropQueued)
+	if pages and lastProgressAt and GetTime() - lastProgressAt > STALE_AFTER then
+		if qrFrame then
+			qrFrame:Hide()
+		end
+		frameWaiter:Hide()
+		awaitingShot = false
+		if dropQueued then
+			queuedRequest = nil
+		end
+		FinishCapture() -- sends a still-waiting request right after
+	end
+end
+
 function SendNow(force)
 	pendingTimer = nil
+	ClearStaleCapture()
 	if pages then
 		return -- a capture is already running; the next change will trigger another
 	end
@@ -403,6 +434,7 @@ end
 --         list, so players who applied a moment ago are looked up before the copy.
 --   "S" = show the API key page (one tiny code, no players).
 function ns.SendRequest(flag)
+	ClearStaleCapture(true)
 	if not ns.LiveEnabled() then
 		ns.Print("Live lookups with the PugLogs app are off - turn them on in /pl opt.")
 		return
@@ -413,6 +445,9 @@ function ns.SendRequest(flag)
 	end
 	if not CanCapture() then
 		ns.Print("Can't reach the PugLogs window in combat or during a key - try again after.")
+		if flag == "R" and ns.OnPasteRequestDone then
+			ns.OnPasteRequestDone(false)
+		end
 		return
 	end
 	local dungeon, lines, filtered
@@ -426,6 +461,7 @@ function ns.SendRequest(flag)
 		batchCounter = batchCounter + 1
 		pages = { table.concat({ "PL2", "req-" .. GetServerTime() .. "-" .. batchCounter, 1, 1, ns.REGION, 0, 0, "", flag }, "\t") }
 	end
+	pagesFlag = flag
 	pageIndex = 0
 	BeginCapture()
 	CaptureNextPage()

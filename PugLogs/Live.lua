@@ -5,7 +5,8 @@
 -- (button on the applicant list, a key binding, or /pl paste) and press Cmd+V / Ctrl+V.
 -- Format (one line, from companion/export.py):
 --   PLR1;encounterID;keyLevel;dungeonName;record;record;...
---   record = name-realmslug,key,timed,seconds,dps,percent,interrupts,dispels,deaths,damageTaken,reason
+--   record = name-realmslug,key,timed,seconds,dps,percent,interrupts,dispels,deaths,damageTaken,reason,
+--            runSpec,specMismatch   (0 = same spec, 1 = other spec same role, 2 = different role)
 --   (stats fields are empty when not loaded; "name-realmslug,0" = no logs in this dungeon)
 local _, ns = ...
 
@@ -50,6 +51,8 @@ local function Parse(text)
 				deaths = Num(f[9]),
 				damageTaken = Num(f[10]),
 				reason = f[11],
+				runSpec = f[12],
+				specMismatch = Num(f[13]) or 0,
 			}
 			data.count = data.count + 1
 		end
@@ -62,8 +65,10 @@ ns.ParseLiveData = Parse -- used by tests
 -- Paste box ------------------------------------------------------------------------
 
 local PASTE_KEY = IsMacClient() and "Cmd+V" or "Ctrl+V"
-local READY_AFTER = 3 -- seconds; the companion first looks up anyone new, then copies
+local COPY_TIME = 1.2 -- seconds the companion needs after the request's screenshot is saved
+local GIVE_UP_AFTER = 15 -- seconds without the request getting through
 local readyTimer
+local ready = false
 
 local function SetHint(text, r, g, b)
 	pasteFrame.hint:SetText(text)
@@ -78,8 +83,12 @@ local function OnPasted(editBox)
 	editBox:SetText("")
 	local data = Parse(text)
 	if not data then
-		-- Pasted too early: the clipboard still held your own text.
-		SetHint(("That was your own clipboard - press %s again."):format(PASTE_KEY), 1, 0.4, 0.3)
+		-- The clipboard still held your own text.
+		if ready then
+			SetHint(("That was your own clipboard - is the PugLogs window running? Press %s to try again."):format(PASTE_KEY), 1, 0.4, 0.3)
+		else
+			SetHint(("Not ready yet - wait for \"Ready\", then press %s."):format(PASTE_KEY), 1, 0.7, 0.3)
+		end
 		return
 	end
 	PugLogsDB.liveData = data -- also kept through /reload
@@ -139,18 +148,44 @@ function ns.OpenPasteBox()
 		return
 	end
 	-- The companion only touches the clipboard when you ask, and puts your own text back afterwards.
-	ns.RequestCopy()
 	pasteFrame = pasteFrame or CreatePasteFrame()
 	pasteFrame.editBox:SetText("")
+	ready = false
 	SetHint("Getting the latest results...", 0.7, 0.7, 0.7)
 	if readyTimer then
 		readyTimer:Cancel()
 	end
-	readyTimer = C_Timer.NewTimer(READY_AFTER, function()
-		SetHint(("Ready - press %s"):format(PASTE_KEY), 0.3, 1, 0.4)
+	-- "Ready" comes from ns.OnPasteRequestDone once the request really went out; this is a fallback.
+	readyTimer = C_Timer.NewTimer(GIVE_UP_AFTER, function()
+		readyTimer = nil
+		ready = true
+		SetHint(("Taking long - press %s to try, or click Copy for WoW in the PugLogs window."):format(PASTE_KEY), 1, 0.7, 0.3)
 	end)
 	pasteFrame:Show()
 	pasteFrame.editBox:SetFocus()
+	ns.RequestCopy()
+end
+
+-- Called by Transport.lua when the paste box's request was saved as a screenshot (delivered)
+-- or couldn't be sent. The companion reads it and copies within about a second.
+function ns.OnPasteRequestDone(delivered)
+	if not (pasteFrame and pasteFrame:IsShown()) or ready then
+		return
+	end
+	if readyTimer then
+		readyTimer:Cancel()
+		readyTimer = nil
+	end
+	if not delivered then
+		ready = true
+		SetHint("Couldn't send the request - is the PugLogs window running? Try again.", 1, 0.4, 0.3)
+		return
+	end
+	readyTimer = C_Timer.NewTimer(COPY_TIME, function()
+		readyTimer = nil
+		ready = true
+		SetHint(("Ready - press %s"):format(PASTE_KEY), 0.3, 1, 0.4)
+	end)
 end
 
 -- Key binding (Options > Keybindings > AddOns > PugLogs)
@@ -216,6 +251,31 @@ local function Clean(value)
 	return value
 end
 
+-- The spec they applied as, in the game's language.
+local function AppliedSpecName(applicantID, memberIdx)
+	local specID = Clean(select(16, C_LFGList.GetApplicantMemberInfo(applicantID, memberIdx)))
+	if specID and specID > 0 then
+		return select(2, GetSpecializationInfoByID(specID))
+	end
+end
+
+-- Which spec the run was played as, standing out when it isn't how they applied.
+local function AddSpecLine(entry, applicantID, memberIdx)
+	if not entry.runSpec or entry.runSpec == "" then
+		return
+	end
+	local applied = AppliedSpecName(applicantID, memberIdx)
+	if entry.specMismatch == 2 then
+		GameTooltip:AddLine(("Run was as %s - a different role than they applied as%s!"):format(
+			entry.runSpec, applied and (" (" .. applied .. ")") or ""), 1, 0.42, 0.36, true)
+	elseif entry.specMismatch == 1 then
+		GameTooltip:AddLine(("Run was as %s%s"):format(entry.runSpec,
+			applied and (" - they applied as " .. applied) or " (another spec)"), 1, 0.7, 0.28, true)
+	else
+		GameTooltip:AddLine("as " .. entry.runSpec, 0.6, 0.6, 0.6)
+	end
+end
+
 local function AddApplicantLines(applicantID, memberIdx)
 	local dungeon = ns.GetListingDungeon()
 	if not dungeon then
@@ -252,6 +312,7 @@ local function AddApplicantLines(applicantID, memberIdx)
 			("+%d  %s %s"):format(entry.key, timeText, entry.timed and "|cff4ec36atimed|r" or "|cffe0624fover|r"),
 			("|cff%s%s DPS (%d)|r"):format(PercentColor(entry.percent), FormatNumber(entry.dps), math.floor(entry.percent or 0)),
 			1, 1, 1, 1, 1, 1)
+		AddSpecLine(entry, applicantID, memberIdx)
 		if entry.reason and entry.reason ~= "" then
 			GameTooltip:AddLine(entry.reason, 0.6, 0.6, 0.6)
 		end

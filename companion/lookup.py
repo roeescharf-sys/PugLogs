@@ -84,9 +84,9 @@ class Lookup:
         """The last known numbers plus what we've spent since, without asking (free)."""
         rate = dict(self.rate)
         if rate:
-            left = rate.get("pointsResetIn", 0) - (time.time() - self._rate_checked)
+            left = (rate.get("pointsResetIn") or 0) - (time.time() - self._rate_checked)
             if left > 0:
-                rate["pointsSpentThisHour"] = rate.get("pointsSpentThisHour", 0) + self._spent_since_check
+                rate["pointsSpentThisHour"] = (rate.get("pointsSpentThisHour") or 0) + self._spent_since_check
                 rate["pointsResetIn"] = left
             else:  # the hour has reset since the last check: only what we spent since counts
                 rate["pointsSpentThisHour"] = self._spent_since_check
@@ -95,13 +95,14 @@ class Lookup:
 
     def _budget_ok(self):
         rate = self.estimated_rate()
-        if rate.get("pointsResetIn", 1) <= 0:
-            rate = self.refresh_rate(force=True)  # the hour has reset
-        spent, limit = rate.get("pointsSpentThisHour", 0), rate.get("limitPerHour", 720)
+        reset_in = rate.get("pointsResetIn")
+        if rate and (reset_in is None or reset_in <= 0):
+            rate = self.refresh_rate(force=True)  # the hour has reset: ask for the new numbers
+        spent, limit = rate.get("pointsSpentThisHour") or 0, rate.get("limitPerHour") or 720
         if spent + LOOKUP_COST > limit - POINTS_RESERVE and time.time() - self._rate_checked > 60:
             # Our count says we're near the limit; ask (at most once a minute) to be sure.
             rate = self.refresh_rate(force=True)
-            spent, limit = rate.get("pointsSpentThisHour", 0), rate.get("limitPerHour", 720)
+            spent, limit = rate.get("pointsSpentThisHour") or 0, rate.get("limitPerHour") or 720
         return spent + LOOKUP_COST <= limit - POINTS_RESERVE
 
     def player_runs(self, member, region, encounter_id):
@@ -140,6 +141,27 @@ class Lookup:
             },
             "reason": reason,
         }
+
+
+# Spec names that aren't damage dealers (names are unique per role across classes).
+SPEC_ROLES = {
+    "Restoration": "HEALER", "Holy": "HEALER", "Discipline": "HEALER", "Mistweaver": "HEALER",
+    "Preservation": "HEALER",
+    "Protection": "TANK", "Blood": "TANK", "Brewmaster": "TANK", "Guardian": "TANK", "Vengeance": "TANK",
+}
+ROLE_NAMES = {"TANK": "tank", "HEALER": "healer", "DAMAGER": "DPS"}
+
+
+def spec_role(spec):
+    return SPEC_ROLES.get(spec or "", "DAMAGER")
+
+
+def spec_mismatch(applied_spec, run_spec):
+    """0 = same spec (or unknown), 1 = other spec in the same role, 2 = a different role
+    (e.g. a healing run for someone who applied as DPS)."""
+    if not applied_spec or not run_spec or applied_spec == run_spec:
+        return 0
+    return 2 if spec_role(applied_spec) != spec_role(run_spec) else 1
 
 
 def level(run):

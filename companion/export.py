@@ -2,6 +2,7 @@
 import threading
 
 import clipboard
+from lookup import spec_mismatch
 
 
 def _clean(text):
@@ -37,6 +38,8 @@ def build(listing, members, results, result_key):
             _num((run.get("duration") or 0) / 1000), _num(run.get("dps")), _num(run.get("percent"), 1),
             "", "", "", "",  # interrupts, dispels, deaths, damage taken: not fetched
             _clean(result.get("reason", "")),
+            _clean(run.get("spec") or ""),
+            str(spec_mismatch(m.spec, run.get("spec"))),
         ]
         records.append(",".join(fields))
     if pending:
@@ -56,20 +59,35 @@ def _paste():
     return clipboard.paste()
 
 
+_restore_lock = threading.Lock()
+_restore = {"previous": None, "ours": None, "timer": None}
+
+
 def copy_then_restore(text):
-    """Copies text for WoW, then puts the previous clipboard text back after RESTORE_AFTER
-    seconds - unless you copied something else in the meantime."""
-    try:
-        previous = _paste()
-    except Exception:
-        previous = ""
-    copy(text)
+    """Copies text for WoW, then puts your own clipboard text back after RESTORE_AFTER seconds -
+    unless you copied something else in the meantime. Copying again before then keeps the
+    original text to restore (it isn't replaced by our previous copy)."""
+    with _restore_lock:
+        if _restore["timer"] is None:  # no copy of ours pending: remember what was there
+            try:
+                _restore["previous"] = _paste()
+            except Exception:
+                _restore["previous"] = ""
+        else:
+            _restore["timer"].cancel()
+        copy(text)
+        _restore["ours"] = text
 
-    def restore():
-        try:
-            if previous and _paste() == text:
-                copy(previous)
-        except Exception:
-            pass
+        def restore():
+            with _restore_lock:
+                previous, ours = _restore["previous"], _restore["ours"]
+                _restore.update(previous=None, ours=None, timer=None)
+            try:
+                if previous and _paste() == ours:
+                    copy(previous)
+            except Exception:
+                pass
 
-    threading.Timer(RESTORE_AFTER, restore).start()
+        _restore["timer"] = threading.Timer(RESTORE_AFTER, restore)
+        _restore["timer"].daemon = True
+        _restore["timer"].start()

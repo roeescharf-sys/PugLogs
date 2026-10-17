@@ -126,6 +126,8 @@ class State:
                     "profileUrl": lookup.character_url(lst.get("region", "eu"), m.realm_slug, m.name,
                                                        SEASON_ZONE_ID, lst.get("encounterId")),
                     **result,
+                    "specMismatch": lookup.spec_mismatch(m.spec, (result.get("featured") or {}).get("spec")),
+                    "runRole": lookup.ROLE_NAMES[lookup.spec_role((result.get("featured") or {}).get("spec"))],
                 })
             return {
                 "listing": self.listing,
@@ -224,13 +226,22 @@ def lookups_in_progress():
 
 
 def copy_for_paste_box(wait=0):
-    deadline = time.time() + wait
-    while time.time() < deadline and lookups_in_progress():
-        time.sleep(0.1)
+    """The paste box in WoW asked for results: copy what we have right away (the box tells the
+    player it's ready a moment after asking), then copy again once new applicants' lookups finish."""
+    state.log("Paste box opened in WoW")
     if copy_for_wow(force=True, restore=True):
         state.log("Results copied for WoW - press Cmd+V in the paste box")
     else:
         state.log("Paste box opened, but there are no results to copy yet")
+    if not wait or not lookups_in_progress():
+        return
+    deadline = time.time() + wait
+    while time.time() < deadline and lookups_in_progress():
+        time.sleep(0.1)
+    with state.lock:
+        changed = export.build(state.listing, state.members, state.results, result_key) != state.copied_text
+    if changed and copy_for_wow(force=True, restore=True):
+        state.log("Copied again with the newly looked-up applicants - paste again to load them")
 
 
 def copy_for_wow(force=False, restore=False):
