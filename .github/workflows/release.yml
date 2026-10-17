@@ -1,5 +1,8 @@
-# Builds the ready-to-run downloads for Windows and macOS.
-# - Push a tag like v0.5.0 to build both and publish them on a GitHub release.
+# Builds and publishes PugLogs.
+# - Push a tag like v0.7.0 to build everything and publish it:
+#     * the PugLogs app: PugLogs-Setup.exe + PugLogs-Windows.zip (Windows), PugLogs-macOS.dmg (macOS)
+#       on the GitHub release
+#     * the addon on CurseForge and Wago, once their keys are set up (see docs/PUBLISHING.md)
 # - Or run it by hand (Actions > Build downloads > Run workflow) to just test the builds.
 name: Build downloads
 
@@ -12,7 +15,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  app:
     strategy:
       fail-fast: false
       matrix:
@@ -37,7 +40,7 @@ jobs:
         working-directory: companion
         run: python build.py
 
-      - name: Smoke test (starts, installs the addon, serves the setup page)
+      - name: Smoke test (starts, installs the addon, serves the setup page, loads the window engine)
         shell: bash
         working-directory: companion
         run: |
@@ -53,22 +56,83 @@ jobs:
           done
           cat "$RUNNER_TEMP/home/.config/puglogs/puglogs.log"
           grep -q '"setupNeeded": true' "$RUNNER_TEMP/state.json"
-          # The window engine (WebView2 on Windows, WebKit on macOS) must load from the build.
+          test -f "$RUNNER_TEMP/wow/Interface/AddOns/PugLogs/PugLogs.toc"
           # (separate home folder: the first copy is still running and holds its log open)
           mkdir -p "$RUNNER_TEMP/home2"
           HOME="$RUNNER_TEMP/home2" USERPROFILE="$RUNNER_TEMP/home2" "$exe" --selftest
           cat "$RUNNER_TEMP/home2/.config/puglogs/puglogs.log"
           grep -q "window engine OK" "$RUNNER_TEMP/home2/.config/puglogs/puglogs.log"
-          test -f "$RUNNER_TEMP/wow/Interface/AddOns/PugLogs/PugLogs.toc"
           echo "Smoke test passed"
+
+      - name: Build the Windows installer
+        if: runner.os == 'Windows'
+        shell: bash
+        working-directory: companion
+        run: |
+          version=$(sed -n 's/^## Version: *//p' ../PugLogs/PugLogs.toc | tr -d '\r')
+          choco install innosetup --no-progress -y > /dev/null
+          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" //Q "//DAppVersion=$version" packaging/PugLogs.iss
+          ls -la dist
+
+      - name: Test the Windows installer (silent install, then start the installed app)
+        if: runner.os == 'Windows'
+        shell: bash
+        working-directory: companion
+        run: |
+          ./dist/PugLogs-Setup.exe //VERYSILENT //SUPPRESSMSGBOXES //NORESTART
+          for i in $(seq 1 30); do [ -f "$LOCALAPPDATA/Programs/PugLogs/PugLogs.exe" ] && break; sleep 2; done
+          mkdir -p "$RUNNER_TEMP/home3"
+          HOME="$RUNNER_TEMP/home3" USERPROFILE="$RUNNER_TEMP/home3" "$LOCALAPPDATA/Programs/PugLogs/PugLogs.exe" --selftest
+          grep -q "window engine OK" "$RUNNER_TEMP/home3/.config/puglogs/puglogs.log"
+          test -f "$APPDATA/Microsoft/Windows/Start Menu/Programs/PugLogs.lnk"
+          echo "Installer test passed"
 
       - uses: actions/upload-artifact@v4
         with:
           name: PugLogs-${{ matrix.system }}
-          path: companion/dist/PugLogs-${{ matrix.system }}.zip
+          path: |
+            companion/dist/PugLogs-Setup.exe
+            companion/dist/PugLogs-Windows.zip
+            companion/dist/PugLogs-macOS.dmg
+          if-no-files-found: error
 
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: companion/dist/PugLogs-${{ matrix.system }}.zip
+          fail_on_unmatched_files: false
+          files: |
+            companion/dist/PugLogs-Setup.exe
+            companion/dist/PugLogs-Windows.zip
+            companion/dist/PugLogs-macOS.dmg
+
+  addon:
+    # Uploads the addon to CurseForge and Wago. Skipped until the keys exist
+    # (repository Settings > Secrets and variables > Actions; see docs/PUBLISHING.md).
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    env:
+      CF_API_KEY: ${{ secrets.CF_API_KEY }}
+      WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
+      CURSEFORGE_PROJECT_ID: ${{ vars.CURSEFORGE_PROJECT_ID }}
+      WAGO_PROJECT_ID: ${{ vars.WAGO_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Choose where to upload
+        id: targets
+        shell: bash
+        run: |
+          args=""
+          if [ -n "$CF_API_KEY" ] && [ -n "$CURSEFORGE_PROJECT_ID" ]; then args="$args -p $CURSEFORGE_PROJECT_ID"; fi
+          if [ -n "$WAGO_API_TOKEN" ] && [ -n "$WAGO_PROJECT_ID" ]; then args="$args -a $WAGO_PROJECT_ID"; fi
+          echo "args=$args" >> "$GITHUB_OUTPUT"
+          if [ -z "$args" ]; then echo "No CurseForge/Wago keys yet - skipping the addon upload."; fi
+
+      - name: Package and upload the addon
+        if: steps.targets.outputs.args != ''
+        uses: BigWigsMods/packager@v2
+        with:
+          args: ${{ steps.targets.outputs.args }}

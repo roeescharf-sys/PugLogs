@@ -115,21 +115,23 @@ Nothing else to install: the download includes everything it needs (only running
 
 ## Install
 
-1. Download the latest **PugLogs-Windows.zip** or **PugLogs-macOS.zip** from
-   [Releases](https://github.com/roeescharf-sys/PugLogs/releases/latest) and unzip it anywhere.
-2. Start **PugLogs** (`PugLogs.exe` on Windows). The first time:
-   - Windows may say "Windows protected your PC": click **More info → Run anyway**.
-   - macOS may say it can't be opened: **System Settings → Privacy & Security → Open Anyway**
-     (or right-click → Open). The first start can take up to half a minute.
+1. **The PugLogs app** - from [Releases](https://github.com/roeescharf-sys/PugLogs/releases/latest):
+   - **Windows:** run **PugLogs-Setup.exe** (Next → Install; no administrator rights needed).
+     If Windows says "Windows protected your PC", click **More info → Run anyway**.
+   - **macOS:** open **PugLogs-macOS.dmg** and drag PugLogs into Applications. If macOS says it
+     can't be opened: **System Settings → Privacy & Security → Open Anyway**. The first start
+     can take up to half a minute.
 
    These warnings appear because PugLogs isn't signed with a paid developer certificate.
-3. PugLogs **installs the WoW addon for you** and opens its window, which walks
-   you through creating your free Warcraft Logs API client and pasting it in.
-4. In WoW, type `/reload`.
+2. **Start PugLogs.** It **installs the WoW addon for you** (or keeps the one you have from
+   CurseForge/Wago if it's up to date) and opens its window, which walks you through creating
+   your free Warcraft Logs API client and pasting it in.
+3. In WoW, type `/reload`.
 
-That's it. Next time, just start PugLogs before you list a key. It updates the addon by itself
-when you download a newer version. If WoW is installed somewhere unusual, add a line
-`WOW_DIR=<your _retail_ folder>` to the settings file shown on the setup page.
+Next time, just start PugLogs before you list a key. It tells you in its window when a new
+version is out. If WoW is installed somewhere unusual, add a line `WOW_DIR=<your _retail_ folder>`
+to the settings file shown on the setup page. In game, `/pl wcl` reopens the API key page and
+`/pl app` shows the download link.
 
 ### Running from source (developers)
 Requires Python 3.12+. Clone the repository, then start `companion/run.sh` (macOS) or
@@ -244,6 +246,10 @@ companion/            the program (Python)
 docs/api-costs.md     measured API costs
 tools/gen_realms.py   regenerates the EU realm table
 ```
+
+## License
+
+MIT - see [LICENSE](LICENSE). The bundled QR library keeps its BSD 3-clause license.
 
 ## Credits
 

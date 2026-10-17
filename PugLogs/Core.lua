@@ -7,6 +7,7 @@ local CHARACTER_URL = "https://www.warcraftlogs.com/character/%s/%s/%s"
 local DUNGEON_QUERY = "?zone=%d&boss=%d"
 
 local PREFIX = "|cff00ccffPugLogs:|r "
+ns.APP_URL = "https://github.com/roeescharf-sys/PugLogs/releases/latest"
 
 function ns.Print(msg)
 	print(PREFIX .. msg)
@@ -135,6 +136,7 @@ local function PrintHelp()
 	print("  /pl paste  - paste results from the PugLogs window into applicant tooltips")
 	print("  /pl filters  - choose which applicants are looked up (item level, rating, role, class, spec)")
 	print("  /pl wcl  - open the Warcraft Logs API key page in the PugLogs app")
+	print("  /pl app  - download link for the PugLogs app (needed for live lookups)")
 	print("  Or right-click an applicant or group member and choose \"Check logs\".")
 end
 
@@ -144,6 +146,8 @@ SlashCmdList.PUGLOGS = function(msg)
 	msg = strtrim(msg or "")
 	if msg == "" then
 		PrintHelp()
+	elseif msg == "app" then
+		ns.ShowCopyPopup("PugLogs app - free download", ns.APP_URL)
 	elseif msg == "filters" or msg == "options" then
 		ns.OpenFilters()
 	elseif msg == "paste" then
@@ -173,3 +177,18 @@ SlashCmdList.PUGLOGS = function(msg)
 		ns.ShowLogsFor(player, nil, dungeon)
 	end
 end
+
+-- First login after installing: explain what needs the PugLogs app.
+local welcome = CreateFrame("Frame")
+welcome:RegisterEvent("PLAYER_LOGIN")
+welcome:SetScript("OnEvent", function()
+	PugLogsDB = PugLogsDB or {}
+	if PugLogsDB.welcomed then
+		return
+	end
+	PugLogsDB.welcomed = true
+	C_Timer.After(8, function()
+		ns.Print("Thanks for installing PugLogs! Right-click \"Check logs\" and the filters (/pl filters) work right away.")
+		ns.Print("For live Warcraft Logs runs of your applicants, install the free PugLogs app: type |cffffd100/pl app|r for the link.")
+	end)
+end)

@@ -3,9 +3,9 @@
     pip install -r requirements.txt -r requirements-build.txt
     python build.py
 
-Produces dist/PugLogs-<system>.zip: a PugLogs folder with the PugLogs app (PugLogs.exe on
-Windows, PugLogs.app on macOS), which includes the window files and the WoW addon
-(installed into WoW on first start).
+Produces dist/PugLogs-macOS.dmg (macOS) or dist/PugLogs-Windows.zip plus the dist/PugLogs folder
+that packaging/PugLogs.iss turns into PugLogs-Setup.exe (Windows). The app includes the window
+files and the WoW addon (installed into WoW on first start if missing or older).
 """
 import os
 import shutil
@@ -50,13 +50,19 @@ def main():
     else:
         root = dist
     shutil.copy(os.path.join(HERE, "READ ME FIRST.txt"), os.path.join(root, "PugLogs"))
-    archive = os.path.join(dist, f"PugLogs-{SYSTEM}.zip")
-    if os.path.exists(archive):
-        os.remove(archive)
     if sys.platform == "darwin":
-        # ditto keeps symlinks and permissions inside the .app (Python's zip doesn't).
-        subprocess.run(["ditto", "-c", "-k", "--norsrc", "--keepParent", os.path.join(root, "PugLogs"), archive], check=True)
+        # A disk image: drag PugLogs onto the Applications shortcut next to it.
+        os.symlink("/Applications", os.path.join(root, "PugLogs", "Applications"))
+        archive = os.path.join(dist, "PugLogs-macOS.dmg")
+        if os.path.exists(archive):
+            os.remove(archive)
+        subprocess.run(["hdiutil", "create", "-volname", "PugLogs", "-srcfolder", os.path.join(root, "PugLogs"),
+                        "-ov", "-format", "UDZO", archive], check=True)
     else:
+        # Portable zip; the installer (PugLogs-Setup.exe) is made from the same folder by Inno Setup.
+        archive = os.path.join(dist, f"PugLogs-{SYSTEM}.zip")
+        if os.path.exists(archive):
+            os.remove(archive)
         shutil.make_archive(archive[:-4], "zip", root, "PugLogs")
     print("Built", archive)
 

@@ -18,6 +18,7 @@ import export
 import inbox
 import installer
 import lookup
+import updates
 import wcl
 import window
 
@@ -75,6 +76,7 @@ class State:
         self.rate = {}
         self.setup_needed = False    # no API key yet: the window shows the setup page
         self.setup_requested = False # /pl wcl in WoW: show the page to change the key
+        self.update = None           # {"version", "url"} when a newer PugLogs is released
         self._pages = {}             # batch -> {page number: Page}
         self.auto_copy = False       # off: only copy when the paste box in WoW asks
         self.copied_text = None
@@ -118,6 +120,8 @@ class State:
                 "messages": list(self.messages),
                 "setupNeeded": self.setup_needed,
                 "setupRequested": self.setup_requested,
+                "version": updates.current_version(),
+                "update": self.update,
                 "inWindow": window.available() and not HEADLESS,
                 "onTop": window.is_on_top(),
                 "settingsFile": wcl.ENV_FILE,
@@ -344,6 +348,12 @@ def start_services():
     state.log(f"Watching {_screenshots}")
 
 
+def on_update_available(version, url):
+    with state.lock:
+        state.update = {"version": version, "url": url}
+    state.log(f"PugLogs {version} is available")
+
+
 def set_up_api_client(client_id, secret):
     """From the setup page: checks the API client works, saves it and starts PugLogs."""
     if not client_id or not secret:
@@ -396,6 +406,7 @@ def main():
         state.log(f"Warcraft Logs login failed ({e}) - check your API client in the PugLogs window")
     url = f"http://127.0.0.1:{PORT}"
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    updates.start(on_update_available)
     print("PugLogs is running. Close its window to stop it.", flush=True)
     if not HEADLESS and window.show(url, log=state.log):
         return  # the window was closed: quit

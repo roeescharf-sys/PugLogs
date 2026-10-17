@@ -24,9 +24,22 @@ def _version(addon_dir):
         return None
 
 
+def version_tuple(version):
+    """'0.10.2' -> (0, 10, 2); anything unreadable sorts lowest."""
+    try:
+        return tuple(int(part) for part in str(version).lstrip("v").split("."))
+    except ValueError:
+        return ()
+
+
+def bundled_version():
+    return _version(bundled_addon_dir())
+
+
 def install(wow_dir, log=print):
-    """Copies the bundled addon into AddOns if it is missing or a different version.
-    A symlinked addon folder (a developer setup) is left alone."""
+    """Copies the bundled addon into AddOns if it is missing or older than the bundled one.
+    A newer addon (e.g. updated by CurseForge) and a symlinked addon folder (a developer
+    setup) are left alone."""
     source = bundled_addon_dir()
     new = _version(source)
     if not new:
@@ -35,7 +48,7 @@ def install(wow_dir, log=print):
     if os.path.islink(target):
         return
     old = _version(target)
-    if old == new:
+    if old and version_tuple(old) >= version_tuple(new):
         return
     try:
         if os.path.isdir(target):

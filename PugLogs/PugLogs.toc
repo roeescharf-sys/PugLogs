@@ -1,9 +1,11 @@
 ## Interface: 120105
 ## Title: PugLogs
-## Notes: Right-click a Mythic+ applicant or group member to get their Warcraft Logs page for your dungeon.
+## Notes: Warcraft Logs runs for your Mythic+ applicants, filters and a Check logs link. Live lookups use the free PugLogs app.
 ## Category: Dungeons & Raids
 ## Author: Roee
-## Version: 0.6.2
+## X-License: MIT
+## X-Website: https://github.com/roeescharf-sys/PugLogs
+## Version: 0.7.0
 ## SavedVariables: PugLogsDB
 
 Libs\qrencode.lua

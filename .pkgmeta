@@ -1,0 +1,17 @@
+# Packaging for CurseForge and Wago (BigWigs packager, run by .github/workflows/release.yml).
+# The addon lives in the PugLogs/ subfolder; everything else in this repository is the
+# companion app and docs, which are not part of the addon download.
+package-as: PugLogs
+
+move-folders:
+  PugLogs/PugLogs: PugLogs
+
+ignore:
+  - companion
+  - docs
+  - tools
+  - README.md
+  - LICENSE
+  - .github
+  - .gitattributes
+  - .gitignore
