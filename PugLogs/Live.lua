@@ -83,7 +83,9 @@ local function OnPasted(editBox)
 	editBox:SetText("")
 	local data = Parse(text)
 	if not data then
-		-- The clipboard still held your own text.
+		-- Not PugLogs data. Show what arrived (start and length) so a report can say why.
+		local preview = text:sub(1, 40):gsub("|", "||")
+		ns.Print(("Paste box got %d characters that aren't PugLogs results, starting: %s"):format(#text, preview))
 		if ready then
 			SetHint(("That was your own clipboard - is the PugLogs window running? Press %s to try again."):format(PASTE_KEY), 1, 0.4, 0.3)
 		else

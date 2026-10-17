@@ -158,6 +158,10 @@ have no timed +19, the closest lower key; if all their timed runs are higher, th
 one; if nothing is timed, their highest run, marked "over". If PugLogs can't tell your key level
 (e.g. you listed someone else's key), it shows their highest timed run.
 
+Only runs in the **role they applied as** are considered (a healing run says little about how
+someone plays DPS). If they have no logs in that role, their run in another role is shown with a
+red warning; a run in another spec of the same role gets an orange note.
+
 The percentile is the one Warcraft Logs shows on the log: DPS compared with the same spec at
 the same key level.
 

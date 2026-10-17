@@ -158,8 +158,8 @@ class State:
 
 
 def result_key(member, encounter_id, key_level):
-    # The featured run depends on your key level, so it is part of the key.
-    return f"{member.key}:{encounter_id}:{key_level}"
+    # The featured run depends on your key level and the role they applied as.
+    return f"{member.key}:{encounter_id}:{key_level}:{member.role}"
 
 
 state = State()

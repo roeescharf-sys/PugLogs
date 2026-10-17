@@ -127,7 +127,7 @@ class Lookup:
         ranks = [r for r in ranks or [] if r.get("report", {}).get("fightID") is not None]
         if not ranks:
             return None
-        r, reason = pick_featured(ranks, key_level)
+        r, reason = pick_featured(ranks, key_level, member.role)
         return {
             "featured": {
                 "key": r.get("bracketData"),
@@ -169,8 +169,20 @@ def level(run):
     return run.get("bracketData") or 0
 
 
-def pick_featured(ranks, key_level):
-    """The run to show: their best timed run one key below yours (or the closest to it)."""
+def pick_featured(ranks, key_level, applied_role=""):
+    """The run to show: their best timed run one key below yours (or the closest to it), played
+    in the role they applied as when they have one (a healing run says little about their DPS)."""
+    run, reason = _pick(_in_role(ranks, applied_role) or ranks, key_level)
+    if applied_role and spec_role(run.get("spec")) != applied_role:
+        reason = f"no logs as {ROLE_NAMES.get(applied_role, applied_role)} - {reason}"
+    return run, reason
+
+
+def _in_role(ranks, role):
+    return [r for r in ranks if spec_role(r.get("spec")) == role] if role else []
+
+
+def _pick(ranks, key_level):
     # Runs without a key level can't be compared with your key; use them only if nothing else.
     ranks = [r for r in ranks if level(r)] or ranks
     if not any(level(r) for r in ranks):

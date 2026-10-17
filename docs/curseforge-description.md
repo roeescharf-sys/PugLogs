@@ -22,7 +22,8 @@ hiding off. Filters work on their own, no extra app needed. Open them with `/pl 
 ## See their run for your key
 
 - **Their best timed run in your dungeon, one key below yours** - you list a +20, you see their
-  best +19 - with its DPS and DPS percentile, the same number Warcraft Logs shows.
+  best +19 - with its DPS and DPS percentile, the same number Warcraft Logs shows. Runs in the
+  role they applied as come first, and a run played in another spec or role is clearly marked.
 - **In the tooltip** when you hover an applicant, or in the PugLogs window next to the game as a
   live list - with its own rating filter and a counter of your Warcraft Logs API use.
 - **Check logs** - right-click any applicant or player to get their Warcraft Logs page for your
