@@ -14,7 +14,13 @@
   header { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: baseline; padding: 12px 16px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 1; }
   header h1 { font-size: 15px; margin: 0; color: var(--accent); }
   #listing { font-weight: 600; }
-  #rate, #updated { color: var(--dim); }
+  #updated { color: var(--dim); }
+  #rate { display: inline-flex; align-items: center; gap: 8px; color: var(--dim); white-space: nowrap; }
+  #rate[hidden] { display: none; }
+  .meter { width: 90px; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  .meter > div { height: 100%; background: var(--good); }
+  .meter.warn > div { background: #e0a14f; } .meter.full > div { background: var(--bad); }
+  #minRating { width: 64px; background: var(--bg); color: var(--text); border: 1px solid #3a404b; border-radius: 4px; padding: 2px 6px; font: inherit; }
   .copy { margin-left: auto; display: flex; gap: 10px; align-items: center; }
   .copy[hidden] { display: none; }
   .copy label { color: var(--dim); cursor: pointer; }
@@ -63,11 +69,14 @@
   <h1>PugLogs</h1>
   <span id="listing">Waiting for the addon...</span>
   <span id="updated"></span>
-  <span id="rate"></span>
+  <span id="rate" hidden title="Warcraft Logs API points used this hour, and when the hour resets">
+    API <span id="rateText"></span> <span class="meter" id="meter"><div></div></span> <span id="resetIn"></span>
+  </span>
   <span class="copy">
     <button id="copyBtn" class="btn" title="Put the results on the clipboard, then press Cmd+V in WoW's PugLogs paste box">Copy for WoW</button>
     <label title="Update the clipboard automatically whenever results change"><input type="checkbox" id="autoCopy"> auto-copy</label>
     <span id="copied" class="meta"></span>
+    <label title="Applicants below this M+ rating are hidden and not looked up (empty = any)">min rating <input id="minRating" inputmode="numeric" placeholder="any"></label>
     <label id="onTopLabel" hidden title="Keep the PugLogs window above WoW (play WoW in windowed mode)"><input type="checkbox" id="onTop"> keep on top</label>
   </span>
 </header>
@@ -139,6 +148,28 @@ function memberHtml(m) {
     </div>${body}</div>`;
 }
 
+// API points meter: used/total, and a countdown to the hourly reset (ticks every second).
+let resetAt = null;
+function showRate(r) {
+  const box = document.getElementById("rate");
+  box.hidden = !r.limitPerHour;
+  if (!r.limitPerHour) return;
+  const used = Math.round(r.pointsSpentThisHour || 0), limit = r.limitPerHour, frac = Math.min(1, used / limit);
+  document.getElementById("rateText").textContent = `${used}/${limit}`;
+  const meter = document.getElementById("meter");
+  meter.firstElementChild.style.width = `${Math.round(frac * 100)}%`;
+  meter.className = "meter" + (frac >= 0.9 ? " full" : frac >= 0.7 ? " warn" : "");
+  resetAt = r.pointsResetIn != null ? Date.now() + r.pointsResetIn * 1000 : null;
+  tickReset();
+}
+function tickReset() {
+  const el = document.getElementById("resetIn");
+  if (resetAt == null) { el.textContent = ""; return; }
+  const left = Math.max(0, Math.round((resetAt - Date.now()) / 1000));
+  el.textContent = `resets in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+}
+setInterval(tickReset, 1000);
+
 async function refresh() {
   let s;
   try { s = await (await fetch("/api/state", {cache: "no-store"})).json(); }
@@ -160,12 +191,13 @@ async function refresh() {
   }
   const l = s.listing;
   document.getElementById("listing").textContent = l
-    ? (l.dungeon ? `${l.dungeon}${l.key ? " +" + l.key : ""}${l.filtered ? ` · ${l.filtered} filtered out` : ""}` : "No active listing")
+    ? (l.dungeon ? `${l.dungeon}${l.key ? " +" + l.key : ""}${l.filtered ? ` · ${l.filtered} filtered out` : ""}${s.belowRating ? ` · ${s.belowRating} below your rating` : ""}` : "No active listing")
     : "Waiting for the addon...";
   document.getElementById("updated").textContent = s.updatedAt ? `updated ${new Date(s.updatedAt*1000).toLocaleTimeString()}` : "";
   const r = s.rate || {};
-  document.getElementById("rate").textContent = r.limitPerHour
-    ? `API: ${Math.round(r.pointsSpentThisHour)}/${r.limitPerHour} points this hour` : "";
+  showRate(r);
+  const mr = document.getElementById("minRating");
+  if (document.activeElement !== mr) mr.value = s.minRating ? s.minRating : "";
   document.getElementById("apps").innerHTML = s.applications.map(a =>
     `<div class="app ${a.members.length > 1 ? "group" : ""}">${a.members.map(memberHtml).join("")}</div>`).join("");
   document.getElementById("empty").hidden = !(l && s.applications.length === 0);
@@ -195,6 +227,13 @@ document.getElementById("copyBtn").addEventListener("click", async () => {
   await fetch("/api/copy", { method: "POST", body: "{}" });
   refresh();
 });
+document.getElementById("minRating").addEventListener("change", async e => {
+  const value = parseInt(e.target.value, 10) || 0;
+  await fetch("/api/minrating", { method: "POST", body: JSON.stringify({ value }) });
+  e.target.blur();
+  refresh();
+});
+document.getElementById("minRating").addEventListener("keydown", e => { if (e.key === "Enter") e.target.blur(); });
 document.getElementById("onTop").addEventListener("change", async e => {
   await fetch("/api/ontop", { method: "POST", body: JSON.stringify({ on: e.target.checked }) });
   refresh();

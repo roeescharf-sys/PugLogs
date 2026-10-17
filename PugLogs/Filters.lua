@@ -381,16 +381,33 @@ local function BuildPanel(panel)
 			end
 		end
 	end
+	return anchor -- the lowest element, used to size the scrollable area
 end
 
 local category
 local panel = CreateFrame("Frame")
 panel:Hide()
 panel:SetScript("OnShow", function(self)
-	if not self.built then
-		BuildPanel(self)
-		self.built = true
+	if self.built then
+		return
 	end
+	self.built = true
+	-- The page is taller than the Options window, so it scrolls inside it.
+	local scroll = CreateFrame("ScrollFrame", nil, self, "ScrollFrameTemplate")
+	scroll:SetPoint("TOPLEFT", 0, -2)
+	scroll:SetPoint("BOTTOMRIGHT", -24, 2)
+	local content = CreateFrame("Frame", nil, scroll)
+	content:SetSize(math.max(scroll:GetWidth(), 600), 1)
+	scroll:SetScrollChild(content)
+	local last = BuildPanel(content)
+	-- Size the content to what was drawn once the layout is known.
+	C_Timer.After(0, function()
+		local top, bottom = content:GetTop(), last:GetBottom()
+		content:SetHeight(top and bottom and (top - bottom + 20) or 1000)
+	end)
+	scroll:SetScript("OnSizeChanged", function(_, width)
+		content:SetWidth(math.max(width, 600))
+	end)
 end)
 
 local events = CreateFrame("Frame")

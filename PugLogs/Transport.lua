@@ -6,7 +6,6 @@
 -- Format: see companion/payload.py.
 local _, ns = ...
 
-local MODULE_PX = 2        -- screen pixels per QR square (tested reliable up to ~400 bytes)
 local QUIET_ZONE = 4       -- white border, in squares
 local MAX_PAGE_BYTES = 350 -- keeps each code small; big queues use several codes in a row
 local DEBOUNCE = 1.5       -- seconds to wait for more applicant changes before capturing
@@ -14,11 +13,12 @@ local EC_LEVEL = 2         -- QR error correction level M
 local SETTLE_FRAMES = 2    -- rendered frames the code is on screen before the screenshot
 -- "subtle" (default): dark grey on near-black, needs lossless (TGA) screenshots while the code
 -- is up. "classic": black on white, works with any screenshot format. /pl qr subtle|classic
+-- module = screen pixels per QR square: 1 needs a lossless screenshot; 2 survives JPG.
 local STYLES = {
-	subtle = { background = 0.05, squares = 0.11 },
-	classic = { background = 1, squares = 0 },
+	subtle = { background = 0.05, squares = 0.11, module = 1 },
+	classic = { background = 1, squares = 0, module = 2 },
 }
-local FAILSAFE = 2.5       -- hide the code after this long even if no screenshot event arrives
+local FAILSAFE = 4         -- give up on a capture if WoW doesn't report the screenshot
 
 local qrFrame
 local texturePool = {}
@@ -67,9 +67,9 @@ local function DrawMatrix(matrix)
 	local n = #matrix
 	local _, physicalHeight = GetPhysicalScreenSize()
 	-- At a render scale below 100% the screenshot has fewer pixels than the screen, so make
-	-- the squares bigger to keep MODULE_PX real pixels each.
+	-- the squares bigger to keep style.module real pixels each.
 	local renderScale = tonumber(GetCVar("renderScale")) or 1
-	local pixels = math.ceil(MODULE_PX / math.min(1, math.max(renderScale, 0.25)))
+	local pixels = math.ceil(style.module / math.min(1, math.max(renderScale, 0.25)))
 	local unit = pixels * UIParent:GetHeight() / physicalHeight -- one square, in UI units
 	qrFrame:SetSize((n + 2 * QUIET_ZONE) * unit, (n + 2 * QUIET_ZONE) * unit)
 
@@ -233,19 +233,31 @@ local function BeginCapture()
 	end
 end
 
--- Takes the screenshot after the code has been drawn for a couple of frames.
+-- Takes the screenshot after the code has been drawn for a couple of frames, then hides the
+-- code on the very next frame (WoW captures the frame on screen when Screenshot() is called;
+-- saving the file afterwards can take a while, and the code needn't stay up for that).
+local awaitingShot = false
 local frameWaiter = CreateFrame("Frame")
 frameWaiter:Hide()
 frameWaiter:SetScript("OnUpdate", function(self)
 	self.frames = self.frames + 1
+	if self.shotTaken then
+		self:Hide()
+		qrFrame:Hide()
+		return
+	end
 	if self.frames < SETTLE_FRAMES then
 		return
 	end
-	self:Hide()
 	local shotOK, err = pcall(Screenshot)
 	if not shotOK then
+		self:Hide()
 		ns.Print("Screenshot failed: " .. tostring(err))
-	elseif verbose then
+		return
+	end
+	self.shotTaken = true
+	awaitingShot = true
+	if verbose then
 		ns.Print("Screenshot requested.")
 	end
 end)
@@ -271,12 +283,15 @@ local function CaptureNextPage()
 	end
 	-- Wait until the code has actually been drawn before the screenshot is taken.
 	frameWaiter.frames = 0
+	frameWaiter.shotTaken = false
 	frameWaiter:Show()
-	-- Never leave the code on screen if the screenshot doesn't report back.
+	-- Never leave a capture hanging if the screenshot doesn't report back.
 	failsafeTimer = C_Timer.NewTimer(FAILSAFE, function()
 		failsafeTimer = nil
-		if qrFrame:IsShown() then
+		if qrFrame:IsShown() or awaitingShot then
 			qrFrame:Hide()
+			frameWaiter:Hide()
+			awaitingShot = false
 			ns.Print("No screenshot was taken, so the window wasn't updated. Try /pl test.")
 			FinishCapture()
 		end
@@ -332,7 +347,8 @@ events:SetScript("OnEvent", function(_, event, arg1)
 			PugLogsDB = PugLogsDB or {} -- the live default is decided at login (Core.lua)
 		end
 	elseif event == "SCREENSHOT_SUCCEEDED" or event == "SCREENSHOT_FAILED" then
-		if pages and qrFrame and qrFrame:IsShown() then
+		if pages and awaitingShot then
+			awaitingShot = false
 			if failsafeTimer then
 				failsafeTimer:Cancel()
 				failsafeTimer = nil

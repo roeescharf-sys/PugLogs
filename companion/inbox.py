@@ -25,7 +25,7 @@ def low_contrast_to_black_white(corner):
         edge += 1
     if edge < 4:
         return None
-    module = int(corner[edge + 1, edge + 1])
+    module = int(corner[edge, edge])  # the corner marker's first dark pixel
     if abs(module - background) < 5:
         return None
     closer_to_module = np.abs(corner.astype(np.int16) - module) < np.abs(corner.astype(np.int16) - background)
@@ -45,7 +45,9 @@ def decode_file(path):
     subtle = low_contrast_to_black_white(corner)
     candidates = [corner]
     if subtle is not None:
-        candidates.append(cv2.resize(subtle, None, fx=3, fy=3, interpolation=cv2.INTER_NEAREST))
+        # Small codes (1 pixel per square): the detector needs them enlarged, and some code
+        # sizes are only found at certain magnifications.
+        candidates += [cv2.resize(subtle, None, fx=f, fy=f, interpolation=cv2.INTER_NEAREST) for f in (4, 3, 5, 6)]
     candidates += [
         cv2.resize(corner, None, fx=3, fy=3, interpolation=cv2.INTER_NEAREST),
         cv2.resize(corner, None, fx=2, fy=2, interpolation=cv2.INTER_NEAREST),

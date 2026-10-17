@@ -77,6 +77,7 @@ class State:
         self.setup_needed = False    # no API key yet: the window shows the setup page
         self.setup_requested = False # /pl wcl in WoW: show the page to change the key
         self.update = None           # {"version", "url"} when a newer PugLogs is released
+        self.min_rating = int(window.get_setting("minRating", 0) or 0)  # set in the window
         self._pages = {}             # batch -> {page number: Page}
         self.auto_copy = False       # off: only copy when the paste box in WoW asks
         self.copied_text = None
@@ -101,10 +102,14 @@ class State:
     def snapshot(self):
         with self.lock:
             applications = collections.OrderedDict()
+            below = 0
             for m in self.members:
                 lst = self.listing or {}
                 rkey = result_key(m, lst.get("encounterId"), lst.get("key"))
                 result = self.results.get(rkey) or {"status": "pending"}
+                if result["status"] == "belowRating":
+                    below += 1
+                    continue
                 applications.setdefault(m.application_id, []).append({
                     "name": m.name, "realm": m.realm_slug, "class": m.class_file, "spec": m.spec,
                     "role": m.role, "itemLevel": m.item_level, "score": m.score, "resultKey": rkey,
@@ -116,7 +121,9 @@ class State:
                 "listing": self.listing,
                 "updatedAt": self.updated_at,
                 "applications": [{"id": k, "members": v} for k, v in applications.items()],
-                "rate": self.rate,
+                "rate": _lookup.estimated_rate() if _lookup else self.rate,
+                "minRating": self.min_rating,
+                "belowRating": below,
                 "messages": list(self.messages),
                 "setupNeeded": self.setup_needed,
                 "setupRequested": self.setup_requested,
@@ -177,6 +184,9 @@ def on_page(page):
     for m in new:
         rkey = result_key(m, page.encounter_id, page.key_level)
         with state.lock:
+            if state.min_rating and m.score < state.min_rating:
+                state.results[rkey] = {"status": "belowRating"}  # hidden, never looked up
+                continue
             state.results[rkey] = {"status": "pending"}
         queue_job(1, ("lookup", rkey, m, page.region, page.encounter_id, page.key_level))
     if not new and work.empty():
@@ -202,6 +212,28 @@ def copy_for_wow(force=False, restore=False):
     return True
 
 
+def set_min_rating(value):
+    """From the window: hide (and don't look up) applicants below this M+ rating."""
+    value = max(0, int(value))
+    window.set_setting("minRating", value)
+    jobs = []
+    with state.lock:
+        state.min_rating = value
+        lst = state.listing or {}
+        for m in state.members:
+            rkey = result_key(m, lst.get("encounterId"), lst.get("key"))
+            status = (state.results.get(rkey) or {}).get("status")
+            if value and m.score < value and status in (None, "pending", "waiting"):
+                state.results[rkey] = {"status": "belowRating"}
+                state.waiting.pop(rkey, None)
+            elif status == "belowRating" and not (value and m.score < value):
+                state.results[rkey] = {"status": "pending"}
+                jobs.append(("lookup", rkey, m, lst.get("region"), lst.get("encounterId"), lst.get("key")))
+    for job in jobs:
+        queue_job(1, job)
+    return value
+
+
 def describe_error(e):
     if isinstance(e, lookup.BudgetError):
         return "Hourly API limit nearly used up - try again later"
@@ -216,6 +248,8 @@ def describe_error(e):
 
 def do_lookup(lk, rkey, member, region, encounter_id, key_level):
     with state.lock:
+        if (state.results.get(rkey) or {}).get("status") == "belowRating":
+            return  # filtered out while it was waiting in the queue
         state.results[rkey] = {"status": "loading"}
     try:
         found = lk.look_up(member, region, encounter_id, key_level)
@@ -285,6 +319,8 @@ class Handler(BaseHTTPRequestHandler):
                 with state.lock:
                     state.setup_requested = False
                 reply = {"ok": True}
+            elif self.path == "/api/minrating":
+                reply = {"minRating": set_min_rating(body.get("value") or 0)}
             elif self.path == "/api/ontop":
                 window.set_on_top(bool(body["on"]))
                 reply = {"onTop": window.is_on_top()}

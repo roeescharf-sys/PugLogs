@@ -44,6 +44,16 @@ def self_test():
     return backend
 
 
+def get_setting(key, default=None):
+    return _load().get(key, default)
+
+
+def set_setting(key, value):
+    settings = _load()
+    settings[key] = value
+    _save(settings)
+
+
 def available():
     return webview is not None
 

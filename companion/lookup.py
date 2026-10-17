@@ -84,8 +84,13 @@ class Lookup:
         """The last known numbers plus what we've spent since, without asking (free)."""
         rate = dict(self.rate)
         if rate:
-            rate["pointsSpentThisHour"] = rate.get("pointsSpentThisHour", 0) + self._spent_since_check
-            rate["pointsResetIn"] = max(0, rate.get("pointsResetIn", 0) - (time.time() - self._rate_checked))
+            left = rate.get("pointsResetIn", 0) - (time.time() - self._rate_checked)
+            if left > 0:
+                rate["pointsSpentThisHour"] = rate.get("pointsSpentThisHour", 0) + self._spent_since_check
+                rate["pointsResetIn"] = left
+            else:  # the hour has reset since the last check: only what we spent since counts
+                rate["pointsSpentThisHour"] = self._spent_since_check
+                rate["pointsResetIn"] = None  # unknown until the next check
         return rate
 
     def _budget_ok(self):

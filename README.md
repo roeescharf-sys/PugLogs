@@ -1,18 +1,19 @@
 # PugLogs
 
-**See Warcraft Logs performance for your Mythic+ applicants, without leaving the Group Finder.**
+**Filter your Mythic+ applicants and see their Warcraft Logs runs, without leaving the Group Finder.**
 
-When you list a key, dozens of players apply. Checking each one on Warcraft Logs means finding
-their character page, picking the right dungeon, and digging for a relevant run - for every
-applicant. PugLogs does that for you:
+When you list a key, dozens of players apply - most of them people you'd never invite, and
+checking the rest on Warcraft Logs means finding each character page, picking the right dungeon
+and digging for a relevant run. PugLogs does both for you:
 
-- For every applicant, it finds **their best timed run in the dungeon you listed, one key level
-  below yours** (you list a +20 Murder Row, you see their best timed +19 Murder Row), with its
+- **Filters** hide applicants you'd never invite - minimum item level, minimum M+ rating, roles,
+  classes and specs - straight from your applicant list. After you invite someone, others with
+  the same spec (or class) are hidden for that listing. Filters work without the app.
+- For every remaining applicant, it finds **their best timed run in the dungeon you listed, one key
+  level below yours** (you list a +20 Murder Row, you see their best timed +19 Murder Row), with its
   **DPS and DPS percentile** - the same number Warcraft Logs shows on the log.
-- Results appear in a **live window** next to the game within seconds, and in the
-  **Group Finder tooltip** when you hover over an applicant.
-- **Filters** hide players you'd never invite (item level, M+ rating, role, class, spec), so you
-  only see - and only spend lookups on - the ones that matter.
+- Results appear in a **live window** next to the game within seconds (with its own rating filter
+  and a meter of your Warcraft Logs API use), and in the **Group Finder tooltip**.
 - **Right-click → "Check logs"** opens a player's Warcraft Logs page for that dungeon.
 
 > Status: personal project, tested on macOS with WoW Retail 12.1.5 (Midnight Season 2), EU realms.
@@ -25,7 +26,7 @@ applicant. PugLogs does that for you:
 **In the PugLogs window** (an app window next to WoW; tick "keep on top" to float it over the game):
 
 ```
-Murder Row +20 · 4 filtered out                          API: 41/720 points this hour
+Murder Row +20 · 4 filtered out · 2 below your rating     API 41/720 ▓▓░░░░ resets in 22:58
 Ceannor   silvermoon · DPS · 330 ilvl · 3700 score
   +19   31:03 timed   364K DPS (57)    Balance · 20 days ago        <- click +19 to open the log
   best timed +19
