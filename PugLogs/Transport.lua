@@ -234,7 +234,7 @@ local function FinishCapture(delivered)
 	pages, pageIndex = nil, 0
 	if flag == "R" and ns.OnPasteRequestDone then
 		-- Tell the paste box whether its request reached the screenshot folder.
-		C_Timer.After(0, function() ns.OnPasteRequestDone(delivered) end)
+		C_Timer.After(0, function() pcall(ns.OnPasteRequestDone, delivered) end)
 	end
 	if queuedRequest then
 		local flag = queuedRequest
@@ -260,6 +260,7 @@ end
 -- the highest quality: the faint 2-pixel code survives them, and they are small (lossless TGA
 -- screenshots are ~40 MB at 5K and made the game stutter).
 local function BeginCapture()
+	lastProgressAt = GetTime() -- a capture that stalls even before drawing is still cleared
 	savedQuality = GetCVar("screenshotQuality")
 	SetCVar("screenshotQuality", "10")
 	style = (PugLogsDB.qrStyle == "classic") and STYLES.classic or STYLES.subtle
@@ -452,14 +453,14 @@ function ns.SendRequest(flag)
 	if pages then
 		queuedRequest = flag -- sent right after the running capture
 		if flag == "R" and ns.OnPasteRequestStatus then
-			ns.OnPasteRequestStatus("queued")
+			pcall(ns.OnPasteRequestStatus, "queued")
 		end
 		return
 	end
 	if not CanCapture() then
 		ns.Print("Can't reach the PugLogs window in combat or during a key - try again after.")
 		if flag == "R" and ns.OnPasteRequestDone then
-			ns.OnPasteRequestDone(false)
+			pcall(ns.OnPasteRequestDone, false)
 		end
 		return
 	end
@@ -481,7 +482,7 @@ function ns.SendRequest(flag)
 	pagesFlag = flag
 	pageIndex = 0
 	if flag == "R" and ns.OnPasteRequestStatus then
-		ns.OnPasteRequestStatus("sending", #pages)
+		pcall(ns.OnPasteRequestStatus, "sending", #pages)
 	end
 	BeginCapture()
 	CaptureNextPage()
@@ -511,6 +512,7 @@ function ns.HandleLiveSlash(msg)
 		ns.Print("Opening the Warcraft Logs API key page in PugLogs. If nothing opens, start the PugLogs app first.")
 		return true
 	elseif msg == "test" then
+		ClearStaleCapture(true)
 		if pages then
 			ns.Print("A capture is already running.")
 			return true
