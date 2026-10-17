@@ -18,7 +18,7 @@ The app tells its users when a new version is out.
    - Name: `PugLogs`
    - Summary: `Warcraft Logs runs for your Mythic+ applicants, right in the Group Finder.`
    - Description: paste `docs/curseforge-description.md`
-   - Category: **Dungeons & Raids** (and optionally **Data Export**)
+   - Category: **Tooltip** (if extra categories are allowed: **Data Export** or **Miscellaneous**)
    - License: **MIT License**
    - Source: `https://github.com/roeescharf-sys/PugLogs`
 3. Submit. CurseForge reviews new projects (usually a few hours to a few days).
