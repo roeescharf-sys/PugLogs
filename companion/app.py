@@ -21,44 +21,18 @@ import lookup
 import updates
 import wcl
 import window
+import wowdir
 
 PORT = int(os.environ.get("PUGLOGS_PORT", "47615"))
 
 
 def find_wow_dir():
-    """The WoW _retail_ folder: from PUGLOGS_WOW_DIR or WOW_DIR in the settings file,
-    the Battle.net install entry in the Windows registry, or the usual install locations."""
+    """The WoW _retail_ folder (PUGLOGS_WOW_DIR, WOW_DIR in the settings file, or found on
+    this computer), or None - then the window asks the user to choose it."""
     configured = os.environ.get("PUGLOGS_WOW_DIR") or wcl.read_config().get("WOW_DIR")
-    if configured:
-        return configured
-    candidates = []
-    if sys.platform == "win32":
-        try:
-            import winreg
-            for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
-                for key in (r"SOFTWARE\WOW6432Node\Blizzard Entertainment\World of Warcraft",
-                            r"SOFTWARE\Blizzard Entertainment\World of Warcraft"):
-                    try:
-                        with winreg.OpenKey(root, key) as k:
-                            candidates.append(winreg.QueryValueEx(k, "InstallPath")[0])
-                    except OSError:
-                        pass
-        except ImportError:
-            pass
-        for drive in ("C:", "D:", "E:"):
-            for folder in ("Program Files (x86)", "Program Files", "Games", ""):
-                candidates.append(os.path.join(drive + "\\", folder, "World of Warcraft", "_retail_"))
-    else:
-        candidates.append("/Applications/World of Warcraft/_retail_")
-    for path in candidates:
-        path = path.rstrip("\\/")
-        if not path.endswith("_retail_") and os.path.isdir(os.path.join(path, "_retail_")):
-            path = os.path.join(path, "_retail_")
-        if os.path.isdir(os.path.join(path, "Interface")):
-            return path
-    sys.exit("Couldn't find your World of Warcraft folder. Add a line like\n"
-             "  WOW_DIR=C:\\Program Files (x86)\\World of Warcraft\\_retail_\n"
-             f"to {wcl.ENV_FILE} and start PugLogs again.")
+    return wowdir.find(configured)
+
+
 # Inside the packaged app, data files live in sys._MEIPASS.
 RESOURCE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 WEB_DIR = os.path.join(RESOURCE_DIR, "web")
@@ -76,6 +50,7 @@ class State:
         self.rate = {}
         self.setup_needed = False    # no API key yet: the window shows the setup page
         self.setup_requested = False # /pl wcl in WoW: show the page to change the key
+        self.wow_missing = False     # WoW folder not found: the window asks for it
         self.update = None           # {"version", "url"} when a newer PugLogs is released
         self.min_rating = int(window.get_setting("minRating", 0) or 0)  # set in the window
         self._pages = {}             # batch -> {page number: Page}
@@ -126,6 +101,7 @@ class State:
                 "belowRating": below,
                 "messages": list(self.messages),
                 "setupNeeded": self.setup_needed,
+                "wowMissing": self.wow_missing,
                 "setupRequested": self.setup_requested,
                 "version": updates.current_version(),
                 "update": self.update,
@@ -319,6 +295,8 @@ class Handler(BaseHTTPRequestHandler):
                 with state.lock:
                     state.setup_requested = False
                 reply = {"ok": True}
+            elif self.path == "/api/wowdir":
+                reply = choose_wow_dir(body.get("path"))
             elif self.path == "/api/minrating":
                 reply = {"minRating": set_min_rating(body.get("value") or 0)}
             elif self.path == "/api/ontop":
@@ -401,6 +379,8 @@ def set_up_api_client(client_id, secret):
     except OSError as e:
         return False, f"Couldn't reach Warcraft Logs: {e}"
     wcl.save_credentials(client_id, secret)
+    if _screenshots is None:
+        return True, None  # saved; PugLogs starts once the WoW folder is chosen
     try:
         if _services_started:
             _lookup.client = wcl.Client(client_id, secret)  # a changed key, used from now on
@@ -419,17 +399,14 @@ HEADLESS = "--no-window" in sys.argv or "--no-browser" in sys.argv  # server onl
 LOG_FILE = os.path.expanduser("~/.config/puglogs/puglogs.log")
 
 
-def main():
+def use_wow_dir(wow_dir):
+    """Everything that needs the WoW folder: install the addon, then start PugLogs or the
+    API key setup."""
     global _screenshots
-    wow_dir = find_wow_dir()
     _screenshots = os.path.join(wow_dir, "Screenshots")
+    with state.lock:
+        state.wow_missing = False
     installer.install(wow_dir, log=state.log)
-    try:
-        server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    except OSError:
-        sys.exit("PugLogs is already running - look for its window.\n\n"
-                 f"(If it isn't, another program is using port {PORT}; "
-                 "set PUGLOGS_PORT to another number.)")
     try:
         start_services()
     except wcl.MissingCredentials:
@@ -440,6 +417,37 @@ def main():
         with state.lock:
             state.setup_needed = True
         state.log(f"Warcraft Logs login failed ({e}) - check your API client in the PugLogs window")
+
+
+def choose_wow_dir(typed_path=None):
+    """From the window: the user picks (or types) their WoW folder."""
+    path = typed_path or window.choose_folder()
+    if not path:
+        return {"ok": False, "error": None}  # cancelled
+    retail = wowdir.normalize(path)
+    if not retail:
+        return {"ok": False, "error": f"That doesn't look like a World of Warcraft folder: {path}. "
+                                      "Choose the folder that contains _retail_."}
+    wcl.save_values({"WOW_DIR": retail})
+    state.log(f"Using the World of Warcraft folder {retail}")
+    use_wow_dir(retail)
+    return {"ok": True, "path": retail}
+
+
+def main():
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    except OSError:
+        sys.exit("PugLogs is already running - look for its window.\n\n"
+                 f"(If it isn't, another program is using port {PORT}; "
+                 "set PUGLOGS_PORT to another number.)")
+    wow_dir = find_wow_dir()
+    if wow_dir:
+        use_wow_dir(wow_dir)
+    else:
+        with state.lock:
+            state.wow_missing = True
+        state.log("Couldn't find World of Warcraft - choose its folder in the PugLogs window")
     url = f"http://127.0.0.1:{PORT}"
     threading.Thread(target=server.serve_forever, daemon=True).start()
     updates.start(on_update_available)

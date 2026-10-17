@@ -65,10 +65,15 @@ def load_credentials():
 
 def save_credentials(client_id, secret):
     """Writes the API client into the settings file, keeping its other lines."""
+    save_values({"WCL_CLIENT_ID": client_id, "WCL_CLIENT_SECRET": secret})
+
+
+def save_values(wanted):
+    """Sets KEY=value lines in the settings file, keeping its other lines."""
+    wanted = dict(wanted)
     read_config()  # creates the file if needed
     with open(ENV_FILE, encoding="utf-8-sig") as f:
         lines = f.read().splitlines()
-    wanted = {"WCL_CLIENT_ID": client_id, "WCL_CLIENT_SECRET": secret}
     for i, line in enumerate(lines):
         key = line.split("=", 1)[0].strip()
         if key in wanted and "=" in line and not line.lstrip().startswith("#"):

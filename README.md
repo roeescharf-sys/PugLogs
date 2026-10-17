@@ -130,8 +130,8 @@ Nothing else to install: the download includes everything it needs (only running
 3. In WoW, type `/reload`.
 
 Next time, just start PugLogs before you list a key. It tells you in its window when a new
-version is out. If WoW is installed somewhere unusual, add a line `WOW_DIR=<your _retail_ folder>`
-to the settings file shown on the setup page. In game, `/pl wcl` reopens the API key page and
+version is out. PugLogs finds WoW by itself (including custom install folders known to
+Battle.net); if it can't, its window asks you to choose the World of Warcraft folder. In game, `/pl wcl` reopens the API key page and
 `/pl app` shows the download link.
 
 ### Running from source (developers)

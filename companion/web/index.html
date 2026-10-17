@@ -46,6 +46,12 @@
   #update { background: #1d3340; border: 1px solid var(--accent); border-radius: 8px; padding: 8px 12px; }
   #update a { color: var(--accent); font-weight: 600; }
   #version { color: var(--dim); font-size: 12px; margin-top: 8px; }
+  #wowdir { max-width: 640px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 20px 16px; }
+  #wowdir h2 { color: var(--accent); font-size: 18px; }
+  #wowForm { display: grid; gap: 8px; margin: 8px 0; }
+  #wowForm label { display: grid; gap: 4px; color: var(--dim); }
+  #wowForm input { background: var(--bg); color: var(--text); border: 1px solid #3a404b; border-radius: 4px; padding: 6px 8px; font: inherit; }
+  #wowForm button { justify-self: start; padding: 6px 14px; }
   #setup { max-width: 640px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 20px 16px; }
   #setup h2 { color: var(--accent); font-size: 18px; }
   #setup a { color: var(--accent); }
@@ -82,6 +88,17 @@
 </header>
 <main>
   <div id="update" hidden></div>
+  <section id="wowdir" class="panel" hidden>
+    <h2>Where is World of Warcraft?</h2>
+    <p>PugLogs couldn't find your World of Warcraft folder. Choose the folder WoW is installed in -
+      the one that contains <code>_retail_</code> (for example <code>C:\Program Files (x86)\World of Warcraft</code>).</p>
+    <p><button class="btn" id="chooseWow" type="button">Choose folder...</button></p>
+    <form id="wowForm">
+      <label>Or type the path <input id="wowPath" spellcheck="false" placeholder="D:\Games\World of Warcraft"></label>
+      <button class="btn" type="submit">Use this folder</button>
+    </form>
+    <div id="wowMsg" class="meta"></div>
+  </section>
   <section id="setup" hidden>
     <h2 id="setupTitle">Welcome to PugLogs</h2>
     <p>PugLogs reads your applicants' runs from Warcraft Logs, which needs a free API client of your own
@@ -178,6 +195,14 @@ async function refresh() {
   up.hidden = !s.update;
   if (s.update) up.innerHTML = `A new version of PugLogs (${esc(s.update.version)}) is available &middot; <a href="${esc(s.update.url)}" target="_blank" rel="noopener">Download it</a>`;
   document.getElementById("version").textContent = s.version ? `PugLogs ${s.version}` : "";
+  document.getElementById("wowdir").hidden = !s.wowMissing;
+  if (s.wowMissing) {
+    document.getElementById("setup").hidden = true;
+    document.querySelector(".copy").hidden = true;
+    document.getElementById("listing").textContent = "Setup";
+    document.getElementById("apps").innerHTML = "";
+    return;
+  }
   const showSetup = s.setupNeeded || s.setupRequested;
   document.getElementById("setup").hidden = !showSetup;
   document.getElementById("setupClose").hidden = !!s.setupNeeded;
@@ -208,6 +233,20 @@ async function refresh() {
   document.getElementById("messages").innerHTML = s.messages.map(m =>
     `<div>${new Date(m.at*1000).toLocaleTimeString()} ${esc(m.text)}</div>`).join("");
 }
+async function sendWowDir(path) {
+  const msg = document.getElementById("wowMsg");
+  msg.textContent = path ? "Checking..." : "";
+  const r = await (await fetch("/api/wowdir", { method: "POST", body: JSON.stringify({ path }) })).json();
+  if (r.ok) { msg.textContent = `Found it: ${r.path}`; msg.className = "timed"; }
+  else if (r.error) { msg.textContent = r.error; msg.className = "error"; }
+  refresh();
+}
+document.getElementById("chooseWow").addEventListener("click", () => sendWowDir(null));
+document.getElementById("wowForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const path = document.getElementById("wowPath").value.trim();
+  if (path) sendWowDir(path);
+});
 document.getElementById("setupForm").addEventListener("submit", async e => {
   e.preventDefault();
   const msg = document.getElementById("setupMsg");

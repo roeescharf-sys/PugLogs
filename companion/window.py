@@ -105,6 +105,22 @@ def show(url, log=print):
     return True
 
 
+def choose_folder(title="Choose your World of Warcraft folder"):
+    """Opens the system folder picker from the PugLogs window; returns the path or None."""
+    if _window is None or webview is None:
+        return None
+    kind = getattr(getattr(webview, "FileDialog", None), "FOLDER", None)
+    if kind is None:
+        kind = getattr(webview, "FOLDER_DIALOG", 20)
+    try:
+        result = _window.create_file_dialog(kind, directory=os.path.expanduser("~"))
+    except Exception:
+        return None
+    if isinstance(result, (list, tuple)):
+        result = result[0] if result else None
+    return result or None
+
+
 def bring_to_front():
     """Shows the PugLogs window above other windows (or the page in the browser)."""
     if _window is None:
