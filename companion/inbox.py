@@ -64,6 +64,7 @@ class Inbox:
         self.on_page = on_page
         self.log = log
         self._seen = {}   # path -> modification time when handled
+        self._attempts = {}  # path -> failed reads (WoW may still be writing the file)
 
     def start(self):
         threading.Thread(target=self._run, daemon=True).start()
@@ -109,7 +110,10 @@ class Inbox:
     def _wait_until_written(path):
         last = -1
         for _ in range(20):
-            size = os.path.getsize(path)
+            try:
+                size = os.path.getsize(path)
+            except FileNotFoundError:
+                return
             if size == last and size > 0:
                 return
             last = size
@@ -118,9 +122,15 @@ class Inbox:
     def _handle(self, path, use):
         try:
             page = decode_file(path)
-        except Exception as e:  # unreadable or half-written image
-            self.log(f"Could not read {os.path.basename(path)}: {e}")
+        except Exception as e:  # usually a screenshot WoW is still writing: try again shortly
+            tries = self._attempts.get(path, 0) + 1
+            self._attempts[path] = tries
+            if tries < 10:
+                self._seen.pop(path, None)  # picked up again on the next check
+            else:
+                self.log(f"Could not read {os.path.basename(path)}: {e}")
             return
+        self._attempts.pop(path, None)
         if page is None:
             return
         try:
