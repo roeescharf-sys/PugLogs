@@ -160,7 +160,12 @@ one; if nothing is timed, their highest run, marked "over". If PugLogs can't tel
 The percentile is the one Warcraft Logs shows on the log: DPS compared with the same spec at
 the same key level.
 
-### Filters (`/pl filters`, or Options → AddOns → PugLogs)
+### Settings (`/pl filters`, or Options → AddOns → PugLogs)
+- **Live Warcraft Logs lookups with the PugLogs app** - turn off if you only want "Check logs"
+  and the filters; then no screenshots are taken. On by default only when the PugLogs app is
+  installed (it adds a tiny "PugLogs (app)" addon so the addon can tell).
+
+### Filters
 - **Minimum item level** and **minimum M+ rating**
 - **Roles** they applied as, **classes** and **specs**
 - **Hide filtered applicants** from the Group Finder list (on by default). A group that applied

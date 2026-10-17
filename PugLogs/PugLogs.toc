@@ -5,7 +5,7 @@
 ## Author: Roee
 ## X-License: MIT
 ## X-Website: https://github.com/roeescharf-sys/PugLogs
-## Version: 0.7.0
+## Version: 0.7.1
 ## SavedVariables: PugLogsDB
 
 Libs\qrencode.lua

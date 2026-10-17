@@ -27,6 +27,7 @@ access the internet. Download it here:
 
 The app walks you through creating a free Warcraft Logs API key the first time (about a
 minute). The right-click link and the filters work without it.
+Without the app (or with live lookups turned off in /pl filters), PugLogs takes no screenshots.
 
 Currently EU realms only.
 

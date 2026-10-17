@@ -13,6 +13,30 @@ function ns.Print(msg)
 	print(PREFIX .. msg)
 end
 
+-- Live lookups (QR screenshots to the PugLogs app). Off means only "Check logs" and the
+-- filters: no screenshots at all. The default is on only if the app is installed - it adds
+-- a tiny "PugLogs_App" addon that sets PugLogsAppInstalled.
+local liveListeners = {}
+
+function ns.AppInstalled()
+	return PugLogsAppInstalled == true
+end
+
+function ns.LiveEnabled()
+	return PugLogsDB ~= nil and PugLogsDB.live == true
+end
+
+function ns.SetLive(on)
+	PugLogsDB.live = on and true or false
+	for _, listener in ipairs(liveListeners) do
+		listener(PugLogsDB.live)
+	end
+end
+
+function ns.OnLiveChanged(listener)
+	liveListeners[#liveListeners + 1] = listener
+end
+
 -- Since Midnight, some API values can be "secret" (unreadable by addons), e.g. in combat.
 function ns.IsSecret(value)
 	return issecretvalue ~= nil and issecretvalue(value)
@@ -183,12 +207,19 @@ local welcome = CreateFrame("Frame")
 welcome:RegisterEvent("PLAYER_LOGIN")
 welcome:SetScript("OnEvent", function()
 	PugLogsDB = PugLogsDB or {}
+	if PugLogsDB.live == nil then
+		ns.SetLive(ns.AppInstalled()) -- first run: on only if the app is installed
+	end
 	if PugLogsDB.welcomed then
 		return
 	end
 	PugLogsDB.welcomed = true
 	C_Timer.After(8, function()
 		ns.Print("Thanks for installing PugLogs! Right-click \"Check logs\" and the filters (/pl filters) work right away.")
-		ns.Print("For live Warcraft Logs runs of your applicants, install the free PugLogs app: type |cffffd100/pl app|r for the link.")
+		if ns.AppInstalled() then
+			ns.Print("The PugLogs app is installed - live Warcraft Logs runs are on (turn them off in /pl filters).")
+		else
+			ns.Print("For live Warcraft Logs runs of your applicants, install the free PugLogs app: type |cffffd100/pl app|r for the link.")
+		end
 	end)
 end)

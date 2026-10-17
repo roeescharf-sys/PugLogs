@@ -129,6 +129,10 @@ local function CreatePasteFrame()
 end
 
 function ns.OpenPasteBox()
+	if not ns.LiveEnabled() then
+		ns.Print("Live lookups with the PugLogs app are off - turn them on in /pl filters.")
+		return
+	end
 	-- The companion only touches the clipboard when you ask, and puts your own text back afterwards.
 	ns.RequestCopy()
 	pasteFrame = pasteFrame or CreatePasteFrame()
@@ -175,6 +179,8 @@ local function AddViewerButton()
 	end)
 	button:SetScript("OnLeave", GameTooltip_Hide)
 	viewer.PugLogsButton = button
+	button:SetShown(ns.LiveEnabled())
+	ns.OnLiveChanged(function(on) button:SetShown(on) end)
 end
 
 -- Tooltip --------------------------------------------------------------------------
@@ -221,8 +227,8 @@ local function AddApplicantLines(applicantID, memberIdx)
 		GameTooltip:Show()
 		return
 	end
-	-- Only show results for the dungeon you're listing now.
-	local data = PugLogsDB and PugLogsDB.liveData
+	-- Only show results for the dungeon you're listing now (and only with live lookups on).
+	local data = ns.LiveEnabled() and PugLogsDB.liveData
 	if not data or dungeon.wclEncounterID ~= data.encounterID then
 		return
 	end

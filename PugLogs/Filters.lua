@@ -1,4 +1,4 @@
--- Applicant filters (Options > AddOns > PugLogs, or /pl filters).
+-- Settings panel (Options > AddOns > PugLogs, or /pl filters): live lookups on/off and applicant filters.
 -- Applicants who don't match are never sent to the companion, so they are never looked
 -- up and cost no API points. Their tooltip says why they were filtered out.
 local _, ns = ...
@@ -270,13 +270,29 @@ local function BuildPanel(panel)
 
 	local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
 	title:SetPoint("TOPLEFT", 16, -16)
-	title:SetText("PugLogs - applicant filters")
+	title:SetText("PugLogs")
+
+	local live = CreateCheckbox(panel, "Live Warcraft Logs lookups with the PugLogs app", ns.LiveEnabled(), function(on)
+		ns.SetLive(on)
+	end)
+	live:SetPoint("TOPLEFT", title, "BOTTOMLEFT", -4, -10)
+	ns.OnLiveChanged(function(on) live:SetChecked(on) end)
+	local liveNote = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	liveNote:SetPoint("TOPLEFT", live, "BOTTOMLEFT", 28, 0)
+	liveNote:SetWidth(580)
+	liveNote:SetJustifyH("LEFT")
+	liveNote:SetText((ns.AppInstalled() and "The PugLogs app is installed. " or "The PugLogs app isn't installed (/pl app for the link). ")
+		.. "Off: only \"Check logs\" and the filters below - no screenshots are taken.")
+
+	local filtersTitle = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+	filtersTitle:SetPoint("TOPLEFT", liveNote, "BOTTOMLEFT", -24, -20)
+	filtersTitle:SetText("Applicant filters")
 
 	local intro = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-	intro:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+	intro:SetPoint("TOPLEFT", filtersTitle, "BOTTOMLEFT", 0, -8)
 	intro:SetWidth(600)
 	intro:SetJustifyH("LEFT")
-	intro:SetText("Applicants who don't match are not looked up on Warcraft Logs (no API points used). "
+	intro:SetText("Applicants who don't match are hidden and never looked up on Warcraft Logs. "
 		.. "Their tooltip says why they were filtered out.")
 
 	local ilvl = CreateNumberBox(panel, "Minimum item level", f.minItemLevel, function(v)

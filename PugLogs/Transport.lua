@@ -251,8 +251,8 @@ function SendNow(force)
 	if pages then
 		return -- a capture is already running; the next change will trigger another
 	end
-	if not PugLogsDB.live then
-		return
+	if not ns.LiveEnabled() then
+		return -- live lookups are off: never take screenshots
 	end
 	if not CanCapture() then
 		return -- retried when combat ends
@@ -293,10 +293,7 @@ events:RegisterEvent("SCREENSHOT_FAILED")
 events:SetScript("OnEvent", function(_, event, arg1)
 	if event == "ADDON_LOADED" then
 		if arg1 == "PugLogs" then
-			PugLogsDB = PugLogsDB or {}
-			if PugLogsDB.live == nil then
-				PugLogsDB.live = true
-			end
+			PugLogsDB = PugLogsDB or {} -- the live default is decided at login (Core.lua)
 		end
 	elseif event == "SCREENSHOT_SUCCEEDED" or event == "SCREENSHOT_FAILED" then
 		if pages and qrFrame and qrFrame:IsShown() then
@@ -325,6 +322,13 @@ end)
 
 -- Slash commands, called from Core.lua --------------------------------------------
 
+-- Live lookups turned on: send the current applicants right away.
+ns.OnLiveChanged(function(on)
+	if on then
+		ScheduleSend()
+	end
+end)
+
 -- Filters changed in the options: send the new (filtered) applicant list.
 function ns.OnFiltersChanged()
 	ScheduleSend()
@@ -333,6 +337,10 @@ end
 -- Sends a request to the companion as one tiny code with no players:
 --   "R" = put the results on the clipboard (the paste box), "S" = show the API key page.
 function ns.SendRequest(flag)
+	if not ns.LiveEnabled() then
+		ns.Print("Live lookups with the PugLogs app are off - turn them on in /pl filters.")
+		return
+	end
 	if pages then
 		queuedRequest = flag -- sent right after the running capture
 		return
@@ -355,11 +363,11 @@ end
 
 function ns.HandleLiveSlash(msg)
 	if msg == "live on" or msg == "live off" then
-		PugLogsDB.live = (msg == "live on")
-		ns.Print("Live window updates " .. (PugLogsDB.live and "on." or "off."))
+		ns.SetLive(msg == "live on")
+		ns.Print("Live lookups with the PugLogs app " .. (ns.LiveEnabled() and "on." or "off."))
 		return true
 	elseif msg == "live" then
-		ns.Print("Live window updates are " .. (PugLogsDB.live and "on" or "off") .. ". Use /pl live on|off.")
+		ns.Print("Live lookups with the PugLogs app are " .. (ns.LiveEnabled() and "on" or "off") .. ". Use /pl live on|off.")
 		return true
 	elseif msg == "send" then
 		SendNow(true)
