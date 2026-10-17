@@ -76,6 +76,11 @@ local requestCodes = 1 -- QR codes in the current request (more codes take the c
 local retries = 0
 local MAX_RETRIES = 3
 
+local function SetWarning(text)
+	pasteFrame.warning:SetText(text or "")
+	pasteFrame:SetHeight(text and 96 + pasteFrame.warning:GetStringHeight() + 4 or 96)
+end
+
 local function SetHint(text, r, g, b)
 	pasteFrame.hint:SetText(text)
 	pasteFrame.hint:SetTextColor(r or 1, g or 1, b or 1)
@@ -96,6 +101,10 @@ local function StartFallback()
 end
 
 local function AskAgain(why)
+	-- Once is usually something you copied; twice in a row means the companion isn't answering.
+	if retries >= 1 then
+		SetWarning(("No answer from the PugLogs app - is it running? Start it, then press %s again."):format(PASTE_KEY))
+	end
 	if retries >= MAX_RETRIES then
 		SetHint(why .. (" Click Copy for WoW in the PugLogs window, then press %s."):format(PASTE_KEY), 1, 0.4, 0.3)
 		return
@@ -136,6 +145,7 @@ local function OnPasted(editBox)
 		AskAgain("Those were older results.")
 		return
 	end
+	SetWarning(nil)
 	PugLogsDB.liveData = data -- also kept through /reload
 	pasteFrame:Hide()
 	ns.Print(("Loaded %d player(s) for %s%s. Hover over applicants to see their run."):format(
@@ -184,6 +194,13 @@ local function CreatePasteFrame()
 	local hint = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 	hint:SetPoint("TOP", editBox, "BOTTOM", 0, -6)
 	frame.hint = hint
+
+	-- A warning that stays visible while the request steps go on in the line above.
+	local warning = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	warning:SetPoint("TOP", hint, "BOTTOM", 0, -4)
+	warning:SetWidth(310)
+	warning:SetTextColor(1, 0.4, 0.3)
+	frame.warning = warning
 	return frame
 end
 
@@ -197,6 +214,7 @@ function ns.OpenPasteBox()
 	pasteFrame.editBox:SetText("")
 	ready = false
 	retries = 0
+	SetWarning(nil)
 	SetHint("Getting the latest results...", 0.7, 0.7, 0.7)
 	StartFallback()
 	pasteFrame:Show()

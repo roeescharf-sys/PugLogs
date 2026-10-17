@@ -209,8 +209,12 @@ the same key level.
 - **"PugLogs is already running"**: it's already open - look for its window (or quit it first).
 - **Something else went wrong**: the log is in `~/.config/puglogs/puglogs.log`
   (Windows: `C:\Users\<you>\.config\puglogs\puglogs.log`).
-- **"That was your own clipboard"** in the paste box: you pasted before the results arrived; press
-  Cmd+V / Ctrl+V again.
+- **The paste box says "No answer from the PugLogs app - is it running?"**: the PugLogs app isn't
+  running (e.g. it was stopped with Ctrl+C in its Terminal window). Start it; the paste box keeps
+  asking, so pressing Cmd+V / Ctrl+V again then works.
+- **"That wasn't PugLogs results" / "Those were older results"**: the clipboard changed after
+  "Ready" (you copied something, or took a screenshot). The box asks again by itself; press
+  Cmd+V / Ctrl+V once more when it says "Ready".
 
 ---
 
