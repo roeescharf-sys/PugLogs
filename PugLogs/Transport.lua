@@ -283,6 +283,9 @@ end
 -- code on the very next frame (WoW captures the frame on screen when Screenshot() is called;
 -- saving the file afterwards can take a while, and the code needn't stay up for that).
 local awaitingShot = false
+-- WoW names screenshots by the second (WoWScrnShot_MMDDYY_HHMMSS), so a second screenshot in
+-- the same second overwrites the first - and that QR code is lost. One screenshot per second.
+local lastShotSecond
 local frameWaiter = CreateFrame("Frame")
 frameWaiter:Hide()
 frameWaiter:SetScript("OnUpdate", function(self)
@@ -295,6 +298,10 @@ frameWaiter:SetScript("OnUpdate", function(self)
 	if self.frames < SETTLE_FRAMES then
 		return
 	end
+	if time() == lastShotSecond then
+		return -- wait for the next second, so this screenshot gets its own file name
+	end
+	lastShotSecond = time()
 	-- Mark that we're waiting before asking: WoW can report the screenshot during the call.
 	awaitingShot = true
 	self.shotTaken = true

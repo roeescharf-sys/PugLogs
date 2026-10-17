@@ -92,6 +92,7 @@ class State:
         self.auto_copy = False       # off: only copy when the paste box in WoW asks
         self.copied_text = None
         self.paste_request = None    # ID of the latest paste-box request (sent back in the copy)
+        self.answered_request = None # the paste request we last copied results for
         self.copied_at = None
         self.waiting = {}            # rkey -> lookup job, retried when the hourly limit resets
 
@@ -174,6 +175,9 @@ def queue_job(priority, job):
 
 
 def on_page(page):
+    # Temporary trace while the paste flow is tested: every code read, and what it was.
+    print(f"{time.strftime('%H:%M:%S')}   code {page.page}/{page.pages} of {page.batch}"
+          f"{' [paste request]' if 'R' in page.flags else ''}: {len(page.members)} player(s)", flush=True)
     if "S" in page.flags:
         # /pl wcl in WoW: show the API key page.
         with state.lock:
@@ -190,6 +194,10 @@ def on_page(page):
         return
     done = state.add_page(page)
     if not done:
+        if "R" in page.flags:
+            # If a code of this paste request never arrives, still answer it with the
+            # applicant list we already have, rather than leaving the paste box waiting.
+            threading.Timer(3, answer_if_unanswered, args=(page.batch,)).start()
         return
     page, members = done
     with state.lock:
@@ -221,6 +229,16 @@ def on_page(page):
 PASTE_WAIT = 4  # seconds the paste box waits for new applicants' lookups
 
 
+def answer_if_unanswered(batch):
+    with state.lock:
+        unanswered = state.paste_request == batch and state.answered_request != batch
+        if unanswered:
+            state.answered_request = batch  # claim it, so it's answered only once
+    if unanswered:
+        state.log("Part of the paste request didn't arrive - answering with the applicants already known")
+        copy_for_paste_box()
+
+
 def lookups_in_progress():
     with state.lock:
         lst = state.listing or {}
@@ -233,6 +251,8 @@ def copy_for_paste_box(wait=0):
     """The paste box in WoW asked for results: copy what we have right away (the box tells the
     player it's ready a moment after asking), then copy again once new applicants' lookups finish."""
     state.log("Paste box opened in WoW")
+    with state.lock:
+        state.answered_request = state.paste_request
     if copy_for_wow(force=True, restore=True):
         state.log("Results copied for WoW - press Cmd+V in the paste box")
     else:
