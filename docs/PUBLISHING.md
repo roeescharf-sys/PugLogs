@@ -20,6 +20,7 @@ The app tells its users when a new version is out.
    - Description: paste `docs/curseforge-description.md`
    - Category: **Tooltip** (if extra categories are allowed: **Data Export** or **Miscellaneous**)
    - License: **MIT License**
+   - Logo / avatar image: `docs/images/logo.png` (1024x1024; `logo-400.png` if a smaller one is needed)
    - Source: `https://github.com/roeescharf-sys/PugLogs`
 3. Submit. CurseForge reviews new projects (usually a few hours to a few days).
 4. On the project page, note the **Project ID** (shown in the "About Project" box).
