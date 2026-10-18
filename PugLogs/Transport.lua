@@ -377,8 +377,8 @@ function SendNow(force)
 	if pages then
 		return -- a capture is already running; the next change will trigger another
 	end
-	if not ns.LiveEnabled() then
-		return -- live lookups are off: never take screenshots
+	if not ns.LiveActive() then
+		return -- live lookups off, or you can't invite: never take screenshots
 	end
 	if not CanCapture() then
 		return -- retried when combat ends
@@ -413,6 +413,8 @@ events:RegisterEvent("LFG_LIST_APPLICANT_LIST_UPDATED")
 events:RegisterEvent("LFG_LIST_APPLICANT_UPDATED")
 events:RegisterEvent("LFG_LIST_ACTIVE_ENTRY_UPDATE")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
+events:RegisterEvent("PARTY_LEADER_CHANGED") -- becoming leader or assistant starts the updates
+events:RegisterEvent("GROUP_ROSTER_UPDATE")
 events:RegisterEvent("SCREENSHOT_SUCCEEDED")
 events:RegisterEvent("SCREENSHOT_FAILED")
 events:SetScript("OnEvent", function(_, event, arg1)

@@ -6,6 +6,7 @@ counted locally in between.
 """
 import json
 import os
+import re
 import threading
 import time
 
@@ -144,7 +145,7 @@ class Lookup:
                 "timed": r.get("medal") in TIMED_MEDALS,
                 "dps": r.get("amount"),
                 "percent": percent(r),
-                "spec": r.get("spec"),
+                "spec": spec_display(r.get("spec")),
                 "date": r.get("startTime"),
                 "url": report_url(r["report"]["code"], r["report"]["fightID"]),
             },
@@ -161,6 +162,16 @@ SPEC_ROLES = {
 ROLE_NAMES = {"TANK": "tank", "HEALER": "healer", "DAMAGER": "DPS"}
 
 
+def spec_display(spec):
+    """Warcraft Logs writes multi-word specs without spaces ("BeastMastery"); WoW writes
+    "Beast Mastery". Use WoW's spelling."""
+    return re.sub(r"(?<=[a-z])(?=[A-Z])", " ", spec or "")
+
+
+def _same_spec(a, b):
+    return (a or "").replace(" ", "").lower() == (b or "").replace(" ", "").lower()
+
+
 def spec_role(spec):
     return SPEC_ROLES.get(spec or "", "DAMAGER")
 
@@ -168,7 +179,7 @@ def spec_role(spec):
 def spec_mismatch(applied_spec, run_spec):
     """0 = same spec (or unknown), 1 = other spec in the same role, 2 = a different role
     (e.g. a healing run for someone who applied as DPS)."""
-    if not applied_spec or not run_spec or applied_spec == run_spec:
+    if not applied_spec or not run_spec or _same_spec(applied_spec, run_spec):
         return 0
     return 2 if spec_role(applied_spec) != spec_role(run_spec) else 1
 

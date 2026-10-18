@@ -409,8 +409,15 @@ local function BuildPanel(panel)
 	liveNote:SetText((ns.AppInstalled() and "The PugLogs app is installed. " or "The PugLogs app isn't installed (/pl app for the link). ")
 		.. "Off: only \"Check logs\" and the filters below - no screenshots are taken.")
 
+	local leaderOnly = CreateCheckbox(panel, "Only while I can invite (group leader or assistant)",
+		PugLogsDB.liveLeaderOnly ~= false, function(on) PugLogsDB.liveLeaderOnly = on end)
+	leaderOnly:SetPoint("TOPLEFT", liveNote, "BOTTOMLEFT", -28, -8)
+	local leaderNote = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	leaderNote:SetPoint("TOPLEFT", leaderOnly, "BOTTOMLEFT", 28, 0)
+	leaderNote:SetText("As a group member PugLogs then stays quiet: no screenshots, no Warcraft Logs lookups.")
+
 	local filtersTitle = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-	filtersTitle:SetPoint("TOPLEFT", liveNote, "BOTTOMLEFT", -24, -20)
+	filtersTitle:SetPoint("TOPLEFT", leaderNote, "BOTTOMLEFT", -24, -20)
 	filtersTitle:SetText("Applicant filters")
 
 	local intro = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")

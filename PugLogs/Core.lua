@@ -37,6 +37,24 @@ function ns.OnLiveChanged(listener)
 	liveListeners[#liveListeners + 1] = listener
 end
 
+-- Whether you can invite applicants: group leader or assistant, or listing on your own.
+function ns.CanInvite()
+	if not IsInGroup() then
+		return true
+	end
+	local leader, assistant = UnitIsGroupLeader("player"), UnitIsGroupAssistant("player")
+	if ns.IsSecret(leader) or ns.IsSecret(assistant) then
+		return true -- can't tell right now: don't block updates
+	end
+	return leader or assistant or false
+end
+
+-- Automatic updates to the PugLogs app: live lookups on and, unless that option is off, only
+-- while you can invite (as a group member PugLogs stays quiet and takes no screenshots).
+function ns.LiveActive()
+	return ns.LiveEnabled() and (PugLogsDB.liveLeaderOnly == false or ns.CanInvite())
+end
+
 -- Since Midnight, some API values can be "secret" (unreadable by addons), e.g. in combat.
 function ns.IsSecret(value)
 	return issecretvalue ~= nil and issecretvalue(value)

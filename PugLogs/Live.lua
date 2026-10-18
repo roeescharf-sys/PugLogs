@@ -78,7 +78,7 @@ local MAX_RETRIES = 3
 
 local function SetWarning(text)
 	pasteFrame.warning:SetText(text or "")
-	pasteFrame:SetHeight(text and 96 + pasteFrame.warning:GetStringHeight() + 4 or 96)
+	pasteFrame:SetHeight(text and 96 + (pasteFrame.warning:GetStringHeight() or 12) + 4 or 96)
 end
 
 local function SetHint(text, r, g, b)
@@ -292,6 +292,28 @@ local function AddViewerButton()
 	viewer.PugLogsButton = button
 	button:SetShown(ns.LiveEnabled())
 	ns.OnLiveChanged(function(on) button:SetShown(on) end)
+
+	-- On/off switch for live lookups, always visible (the Paste logs button hides when off).
+	local toggle = CreateFrame("CheckButton", nil, viewer, "UICheckButtonTemplate")
+	toggle:SetSize(20, 20)
+	toggle:SetPoint("RIGHT", button, "LEFT", -46, 0)
+	local label = toggle:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+	label:SetPoint("LEFT", toggle, "RIGHT", 0, 1)
+	label:SetText("PugLogs")
+	toggle:SetChecked(ns.LiveEnabled())
+	toggle:SetScript("OnClick", function(self) ns.SetLive(self:GetChecked()) end)
+	toggle:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText("PugLogs live lookups")
+		GameTooltip:AddLine("On: your applicants are looked up in the PugLogs app. Off: no screenshots are taken.", 1, 1, 1, true)
+		if PugLogsDB.liveLeaderOnly ~= false then
+			GameTooltip:AddLine("Only while you can invite (leader or assistant) - change it in /pl opt.", 0.7, 0.7, 0.7, true)
+		end
+		GameTooltip:Show()
+	end)
+	toggle:SetScript("OnLeave", GameTooltip_Hide)
+	ns.OnLiveChanged(function(on) toggle:SetChecked(on) end)
+	viewer.PugLogsToggle = toggle
 end
 
 -- Tooltip --------------------------------------------------------------------------

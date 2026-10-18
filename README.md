@@ -171,7 +171,10 @@ the same key level.
 ### Settings (`/pl opt`, or Options → AddOns → PugLogs)
 - **Live Warcraft Logs lookups with the PugLogs app** - turn off if you only want "Check logs"
   and the filters; then no screenshots are taken. On by default only when the PugLogs app is
-  installed (it adds a tiny "PugLogs (app)" addon so the addon can tell).
+  installed (it adds a tiny "PugLogs (app)" addon so the addon can tell). The same switch is
+  next to the **Paste logs** button in the Group Finder ("PugLogs" checkbox).
+- **Only while I can invite** (on by default) - as a group member who isn't leader or assistant,
+  PugLogs stays quiet: no screenshots and no Warcraft Logs lookups.
 
 ### Filters
 - **Minimum item level** and **minimum M+ rating**
