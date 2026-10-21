@@ -646,10 +646,34 @@ def use_wow_dir(wow_dir):
         with state.lock:
             state.setup_needed = True
         state.log("Set up your Warcraft Logs API client in the PugLogs window")
+    except wcl.ServiceUnavailable as e:
+        # Their side, not the API client: keep trying in the background instead of asking for a key.
+        state.log(f"{e} - PugLogs keeps trying every minute, nothing to do on your side")
+        threading.Thread(target=retry_start_services, daemon=True).start()
     except wcl.WCLError as e:
         with state.lock:
             state.setup_needed = True
         state.log(f"Warcraft Logs login failed ({e}) - check your API client in the PugLogs window")
+
+
+RETRY_LOGIN_EVERY = 60
+
+
+def retry_start_services():
+    """Warcraft Logs was down at startup: try again every minute until it answers."""
+    while not _services_started:
+        time.sleep(RETRY_LOGIN_EVERY)
+        try:
+            start_services()
+            state.log("Warcraft Logs is back - PugLogs is running")
+            return
+        except wcl.ServiceUnavailable:
+            continue
+        except wcl.WCLError as e:
+            with state.lock:
+                state.setup_needed = True
+            state.log(f"Warcraft Logs login failed ({e}) - check your API client in the PugLogs window")
+            return
 
 
 def choose_wow_dir(typed_path=None):

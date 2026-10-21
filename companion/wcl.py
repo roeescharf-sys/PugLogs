@@ -91,6 +91,10 @@ class RateLimited(WCLError):
     """Warcraft Logs refused the request because too many were sent (HTTP 429)."""
 
 
+class ServiceUnavailable(WCLError):
+    """Warcraft Logs is down, overloaded or unreachable - not a problem with the API client."""
+
+
 class Client:
     def __init__(self, client_id=None, secret=None):
         if client_id and secret:
@@ -114,7 +118,11 @@ class Client:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = json.load(resp)
         except urllib.error.HTTPError as e:
-            raise WCLError(f"Login failed (HTTP {e.code}). Check the client ID and secret.") from None
+            if e.code >= 500:
+                raise ServiceUnavailable(f"Warcraft Logs is down or busy right now (HTTP {e.code})") from None
+            raise WCLError(f"Warcraft Logs didn't accept the client ID and secret (HTTP {e.code})") from None
+        except (urllib.error.URLError, OSError) as e:
+            raise ServiceUnavailable(f"Can't reach Warcraft Logs ({getattr(e, 'reason', e)})") from None
         self._token = data["access_token"]
         self._token_expires = time.time() + data.get("expires_in", 3600)
         return self._token
@@ -142,7 +150,14 @@ class Client:
                     self._token = None
                     if attempt < retries:
                         continue
+                if e.code >= 500:
+                    raise ServiceUnavailable(f"Warcraft Logs is down or busy right now (HTTP {e.code})") from None
                 raise WCLError(f"HTTP {e.code}: {e.read()[:300]!r}") from None
+            except (urllib.error.URLError, OSError) as e:
+                if attempt < retries:
+                    time.sleep(2 ** (attempt + 1))
+                    continue
+                raise ServiceUnavailable(f"Can't reach Warcraft Logs ({getattr(e, 'reason', e)})") from None
             if data.get("errors"):
                 raise WCLError(json.dumps(data["errors"])[:500])
             return data["data"]
