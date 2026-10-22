@@ -258,12 +258,44 @@ end
 
 -- Frame ---------------------------------------------------------------------------------------
 
+-- Where the panel goes: where you dragged it, or else beside Raider.IO's profile window (which
+-- sits on the right of the Group Finder too), or else right of the Group Finder.
+local function Position()
+	if not panel then
+		return
+	end
+	panel:ClearAllPoints()
+	local saved = PugLogsDB and PugLogsDB.panelPos
+	if saved and type(saved[1]) == "number" then
+		panel:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", saved[1], saved[2])
+		return
+	end
+	local rio = _G.RaiderIO_ProfileTooltip
+	if rio and rio:IsShown() then
+		panel:SetPoint("TOPLEFT", rio, "TOPRIGHT", 4, 0)
+	else
+		panel:SetPoint("TOPLEFT", PVEFrame, "TOPRIGHT", 4, 0)
+	end
+end
+
+local rioHooked = false
+local function FollowRaiderIO()
+	local rio = _G.RaiderIO_ProfileTooltip
+	if rio and not rioHooked then
+		rioHooked = true
+		rio:HookScript("OnShow", Position)
+		rio:HookScript("OnHide", Position)
+	end
+end
+
 local function UpdateShown()
 	local viewer = LFGListFrame and LFGListFrame.ApplicationViewer
 	local show = Settings().panel and viewer and viewer:IsVisible() and ns.GetListingDungeon() ~= nil
 	if panel then
 		panel:SetShown(show and true or false)
 		if show then
+			FollowRaiderIO()
+			Position()
 			ns.OnPanelChanged()
 		end
 	end
@@ -277,6 +309,23 @@ local function CreatePanel()
 	panel = CreateFrame("Frame", "PugLogsApplicantPanel", PVEFrame, "BackdropTemplate")
 	panel:SetSize(350, 54 + MAX_ROWS * ROW_HEIGHT + 30)
 	panel:SetPoint("TOPLEFT", PVEFrame, "TOPRIGHT", 4, 0)
+	panel:SetFrameStrata("HIGH")
+	panel:SetClampedToScreen(true)
+	panel:SetMovable(true)
+	panel:EnableMouse(true)
+	panel:RegisterForDrag("LeftButton")
+	panel:SetScript("OnDragStart", panel.StartMoving)
+	panel:SetScript("OnDragStop", function(self)
+		self:StopMovingOrSizing()
+		self:SetUserPlaced(false) -- PugLogs remembers the position itself
+		-- GetLeft/GetTop and SetPoint offsets both use the panel's own scale, measured from the
+		-- screen's bottom-left corner, so this works however the Group Finder is scaled.
+		local left, top = self:GetLeft(), self:GetTop()
+		if left and top then
+			PugLogsDB.panelPos = { left, top }
+			Position()
+		end
+	end)
 	panel:SetBackdrop({
 		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
 		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -287,7 +336,7 @@ local function CreatePanel()
 
 	local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
 	title:SetPoint("TOPLEFT", 12, -10)
-	title:SetText("PugLogs applicants")
+	title:SetText("PugLogs applicants  |cff888888(drag to move)|r")
 
 	local close = CreateFrame("Button", nil, panel, "UIPanelCloseButton")
 	close:SetPoint("TOPRIGHT", 0, 0)
@@ -330,6 +379,10 @@ function ns.HandlePanelSlash(msg)
 	if msg == "panel" or msg == "panel on" or msg == "panel off" then
 		settings.panel = msg ~= "panel off"
 		ns.Print("Applicant panel " .. (settings.panel and "on" or "off") .. ".")
+	elseif msg == "panel reset" then
+		settings.panelPos = nil
+		ns.Print("Applicant panel back to its automatic place (next to the Group Finder / Raider.IO).")
+		Position()
 	elseif msg == "panel invite on" or msg == "panel invite off" then
 		settings.panelInvite = msg == "panel invite on"
 		ns.Print("Invite/Decline buttons in the panel " .. (settings.panelInvite and "on (experimental)." or "off."))

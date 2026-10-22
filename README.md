@@ -173,7 +173,9 @@ Next to the Group Finder, while you look at your applicants, PugLogs shows its o
 applicants **without the filtered ones, sorted by Log, Rating, iLvl, Role or applied order**, with
 each player's run from your last paste (key, timed or over, DPS percentile; `!` = run in another
 role, `*` = another spec). Hover a row for the full tooltip. It never changes Blizzard's own list,
-so it can't cause Group Finder errors. `/pl panel off` hides it, `/pl panel on` brings it back.
+so it can't cause Group Finder errors. It sits beside Raider.IO's profile window when that's shown;
+drag it by its title to put it anywhere (`/pl panel reset` returns it to the automatic spot).
+`/pl panel off` hides it, `/pl panel on` brings it back.
 Experimental: `/pl panel invite on` adds Invite (+) and Decline (x) buttons to the panel.
 
 ### Settings (`/pl opt`, or Options → AddOns → PugLogs)
