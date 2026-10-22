@@ -178,7 +178,6 @@ local function PrintHelp()
 	print("  /pl test  - take one test screenshot and report each step")
 	print("  /pl paste  - paste results from the PugLogs window into applicant tooltips")
 	print("  /pl opt  - settings: live lookups and applicant filters (item level, rating, role, class, spec)")
-	print("  /pl sort role|rating|log|default  - order of the applicant list")
 	print("  /pl wcl  - open the Warcraft Logs API key page in the PugLogs app")
 	print("  /pl app  - download link for the PugLogs app (needed for live lookups)")
 	print("  Or right-click an applicant or group member and choose \"Check logs\".")
@@ -193,13 +192,7 @@ SlashCmdList.PUGLOGS = function(msg)
 	elseif msg == "app" then
 		ns.ShowCopyPopup("PugLogs app - free download", ns.APP_URL)
 	elseif msg:match("^sort") then
-		local value = ({ default = "default", role = "role", rating = "rating", score = "rating", log = "log", logs = "log" })[msg:match("^sort%s+(%a+)") or ""]
-		if value then
-			ns.SetSort(value)
-			ns.Print("Applicant list sorted by " .. (value == "default" and "Blizzard's order" or value) .. ".")
-		else
-			ns.Print("Use /pl sort role, /pl sort rating, /pl sort log or /pl sort default.")
-		end
+		ns.SetSort() -- explains that the PugLogs window does the sorting now
 	elseif msg == "opt" then
 		ns.OpenFilters()
 	elseif msg == "paste" then

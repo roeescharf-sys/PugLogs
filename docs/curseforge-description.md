@@ -13,7 +13,7 @@ Hide the applicants you'd never take, straight from your applicant list:
 - **Minimum item level** and **minimum M+ rating**
 - **Roles** - e.g. no more healers once you have one
 - **Classes and specs** - tick exactly what you want
-- **No duplicates** - classes or specs already in your group are hidden automatically, and
+- **No duplicates** - classes or specs already in your group are faded out automatically, and
   come back if that player leaves
 
 Hidden applicants simply disappear from your list - their tooltip tells you why if you turn
