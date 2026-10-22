@@ -188,6 +188,9 @@ Experimental: `/pl panel invite on` adds Invite (+) and Decline (x) buttons to t
 
 ### Filters
 - **Minimum item level** and **minimum M+ rating**
+- **Minimum DPS** (in thousands, e.g. 300 = 300K) - for applicants who applied as DPS, using the
+  DPS of the run PugLogs shows for them, so it applies after **Paste logs**. Players without a
+  pasted run (or with hidden/no logs) aren't filtered by it.
 - **Roles** they applied as, **classes** and **specs**
 - **Hide filtered applicants** from the Group Finder list (on by default). A group that applied
   together is hidden if any member doesn't match.

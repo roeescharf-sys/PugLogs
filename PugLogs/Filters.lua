@@ -13,6 +13,7 @@ local function Filters()
 	local f = PugLogsDB.filters
 	f.minItemLevel = f.minItemLevel or 0
 	f.minRating = f.minRating or 0
+	f.minDps = f.minDps or 0 -- in thousands, for applicants who applied as DPS (needs a paste)
 	f.excludedRoles = f.excludedRoles or {}     -- role -> true
 	f.excludedClasses = f.excludedClasses or {} -- classFile -> true
 	f.excludedSpecs = f.excludedSpecs or {}     -- specID -> true
@@ -37,6 +38,11 @@ function ns.FilterReason(applicant)
 	end
 	if f.minRating > 0 and (applicant.rating or 0) < f.minRating then
 		return ("rating %d < %d"):format(applicant.rating or 0, f.minRating)
+	end
+	-- DPS of the run PugLogs shows for them (from your last paste); only for DPS applicants,
+	-- and nobody is filtered just because they haven't been looked up yet.
+	if f.minDps > 0 and applicant.role == "DAMAGER" and applicant.dps and applicant.dps < f.minDps * 1000 then
+		return ("DPS %dK < %dK"):format(math.floor(applicant.dps / 1000), f.minDps)
 	end
 	if applicant.role and f.excludedRoles[applicant.role] then
 		return (ROLE_NAMES[applicant.role] or applicant.role) .. " not wanted"
@@ -78,10 +84,12 @@ local function ApplicationStatus(applicantID)
 end
 
 function ns.ApplicantFilterReason(applicantID, memberIdx)
-	local _, classFile, _, _, itemLevel, _, _, _, _, assignedRole, _, score, _, _, _, specID =
+	local fullName, classFile, _, _, itemLevel, _, _, _, _, assignedRole, _, score, _, _, _, specID =
 		C_LFGList.GetApplicantMemberInfo(applicantID, memberIdx)
+	local entry = ns.LiveEntry and ns.LiveEntry(Clean(fullName))
 	return ns.FilterReason({
 		classFile = Clean(classFile), specID = Clean(specID), role = Clean(assignedRole),
+		dps = entry and entry.dps,
 		itemLevel = math.floor(Clean(itemLevel) or 0), rating = math.floor(Clean(score) or 0),
 		invited = INVITED[ApplicationStatus(applicantID)] or false,
 	})
@@ -197,7 +205,7 @@ end
 -- A string that changes whenever the filters change (so applicants are re-sent).
 function ns.FilterSignature()
 	local f = Filters()
-	local parts = { f.minItemLevel, f.minRating }
+	local parts = { f.minItemLevel, f.minRating, f.minDps }
 	for _, set in ipairs({ f.excludedRoles, f.excludedClasses, f.excludedSpecs }) do
 		local keys = {}
 		for k, v in pairs(set) do
@@ -217,6 +225,13 @@ local function Changed()
 		ns.OnPanelChanged()
 	end
 	RefreshApplicantList()
+end
+
+-- After a paste: the minimum DPS filter depends on the pasted runs, so re-apply the filters.
+function ns.OnLiveResultsPasted()
+	if Filters().minDps > 0 then
+		Changed()
+	end
 end
 
 -- Your group ---------------------------------------------------------------------------
@@ -441,11 +456,16 @@ local function BuildPanel(panel)
 	end)
 	rating:SetPoint("TOPLEFT", ilvl, "BOTTOMLEFT", 0, -16)
 
+	local minDps = CreateNumberBox(panel, "Minimum DPS, in thousands (DPS applicants, after Paste logs)", f.minDps, function(v)
+		if v ~= f.minDps then f.minDps = v; Changed() end
+	end)
+	minDps:SetPoint("TOPLEFT", rating, "BOTTOMLEFT", 0, -16)
+
 	local hide = CreateCheckbox(panel, "Hide filtered applicants from the Group Finder list", f.hideFiltered, function(on)
 		f.hideFiltered = on
 		RefreshApplicantList()
 	end)
-	hide:SetPoint("TOPLEFT", rating, "BOTTOMLEFT", -4, -14)
+	hide:SetPoint("TOPLEFT", minDps, "BOTTOMLEFT", -4, -14)
 	local hideNote = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
 	hideNote:SetPoint("TOPLEFT", hide, "BOTTOMLEFT", 28, 0)
 	hideNote:SetText("A group that applied together is hidden if any member doesn't match.")

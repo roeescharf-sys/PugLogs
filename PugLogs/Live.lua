@@ -150,6 +150,9 @@ local function OnPasted(editBox)
 	if ns.OnPanelChanged then
 		ns.OnPanelChanged()
 	end
+	if ns.OnLiveResultsPasted then
+		ns.OnLiveResultsPasted()
+	end
 	pasteFrame:Hide()
 	ns.Print(("Loaded %d player(s) for %s%s. Hover over applicants to see their run."):format(
 		data.count, data.dungeon ~= "" and data.dungeon or "?", data.keyLevel > 0 and (" +" .. data.keyLevel) or ""))
