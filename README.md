@@ -170,7 +170,7 @@ the same key level.
 
 ### Applicant panel
 Next to the Group Finder, while you look at your applicants, PugLogs shows its own list: your
-applicants **without the filtered ones, sorted by Log, Rating, iLvl, Role or applied order**, with
+applicants **without the filtered ones, sorted by Log, DPS, Rating, iLvl, Role or applied order**, with
 each player's run from your last paste (key, timed or over, DPS percentile; `!` = run in another
 role, `*` = another spec). Hover a row for the full tooltip. It never changes Blizzard's own list,
 so it can't cause Group Finder errors. It sits beside Raider.IO's profile window when that's shown;

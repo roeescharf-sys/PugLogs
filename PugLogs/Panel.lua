@@ -10,6 +10,7 @@ local MAX_ROWS = 18
 local ROW_HEIGHT = 20
 local SORTS = {
 	{ key = "log", label = "Log" },
+	{ key = "dps", label = "DPS" },
 	{ key = "rating", label = "Rating" },
 	{ key = "ilvl", label = "iLvl" },
 	{ key = "role", label = "Role" },
@@ -80,6 +81,8 @@ local function SortValue(app, by)
 		local v
 		if by == "log" then
 			v = m.entry and m.entry.percent or -1
+		elseif by == "dps" then
+			v = m.entry and m.entry.dps or -1
 		elseif by == "rating" then
 			v = m.score
 		elseif by == "ilvl" then
@@ -121,8 +124,8 @@ local function RoleText(role)
 	return role and role:sub(1, 1) or "?"
 end
 
--- "+19 87" in the colour of the percentile, or why there's no run.
-local function RunText(m)
+-- "+19 87" in the colour of the percentile ("+19 350K" when sorting by DPS), or why there's no run.
+local function RunText(m, showDps)
 	local e = m.entry
 	if not e then
 		return "|cff888888not loaded|r"
@@ -133,6 +136,9 @@ local function RunText(m)
 	end
 	local key = ("%s+%d|r"):format(e.timed and "|cff4ec36a" or "|cffe0624f", e.key or 0)
 	local pct = e.percent and ("|cff%s%d|r"):format(ns.PercentColor(e.percent), math.floor(e.percent)) or "-"
+	if showDps then
+		pct = e.dps and ("|cff%s%dK|r"):format(ns.PercentColor(e.percent), math.floor(e.dps / 1000)) or "-"
+	end
 	local mark = e.specMismatch == 2 and " |cffff6b5b!|r" or (e.specMismatch == 1 and " |cffffb347*|r" or "")
 	return key .. " " .. pct .. mark
 end
@@ -222,7 +228,7 @@ local function Refresh()
 			row.name:SetText(("%s|c%s%s|r"):format(n > 1 and "  " or "", ClassColor(m.class), shortName))
 			row.ilvl:SetText(m.ilvl > 0 and m.ilvl or "-")
 			row.score:SetText(m.score > 0 and m.score or "-")
-			row.run:SetText(RunText(m))
+			row.run:SetText(RunText(m, settings.panelSort == "dps"))
 			local buttons = settings.panelInvite and n == 1 and app.status == "applied"
 			row.invite.applicantID, row.decline.applicantID = app.id, app.id
 			row.invite:SetShown(buttons)
@@ -350,7 +356,7 @@ local function CreatePanel()
 	local prev
 	for _, s in ipairs(SORTS) do
 		local b = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-		b:SetSize(58, 18)
+		b:SetSize(52, 18)
 		b:SetText(s.label)
 		b.key = s.key
 		b:SetPoint("TOPLEFT", prev or panel, prev and "TOPRIGHT" or "TOPLEFT", prev and 4 or 10, prev and 0 or -28)
