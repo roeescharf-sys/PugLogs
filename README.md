@@ -168,6 +168,14 @@ always listed at the bottom of the window, whatever the sort.
 The percentile is the one Warcraft Logs shows on the log: DPS compared with the same spec at
 the same key level.
 
+### Applicant panel
+Next to the Group Finder, while you look at your applicants, PugLogs shows its own list: your
+applicants **without the filtered ones, sorted by Log, Rating, iLvl, Role or applied order**, with
+each player's run from your last paste (key, timed or over, DPS percentile; `!` = run in another
+role, `*` = another spec). Hover a row for the full tooltip. It never changes Blizzard's own list,
+so it can't cause Group Finder errors. `/pl panel off` hides it, `/pl panel on` brings it back.
+Experimental: `/pl panel invite on` adds Invite (+) and Decline (x) buttons to the panel.
+
 ### Settings (`/pl opt`, or Options → AddOns → PugLogs)
 - **Live Warcraft Logs lookups with the PugLogs app** - turn off if you only want "Check logs"
   and the filters; then no screenshots are taken. On by default only when the PugLogs app is

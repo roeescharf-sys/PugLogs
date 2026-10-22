@@ -19,3 +19,4 @@ Menu.lua
 Filters.lua
 Transport.lua
 Live.lua
+Panel.lua

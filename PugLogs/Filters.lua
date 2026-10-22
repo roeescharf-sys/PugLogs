@@ -98,6 +98,7 @@ local function ApplicationFiltered(applicantID)
 	end
 	return false
 end
+ns.ApplicationFiltered = ApplicationFiltered
 
 -- Hide filtered applications from the Group Finder list. Blizzard sorts the list right
 -- after fetching it; we remove filtered entries from that same table afterwards.
@@ -211,6 +212,9 @@ end
 local function Changed()
 	if ns.OnFiltersChanged then
 		ns.OnFiltersChanged()
+	end
+	if ns.OnPanelChanged then
+		ns.OnPanelChanged()
 	end
 	RefreshApplicantList()
 end

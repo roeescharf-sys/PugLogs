@@ -171,6 +171,8 @@ end
 local function PrintHelp()
 	ns.Print("Usage:")
 	print("  /pl Name-Realm [dungeon]  - link to a player's logs")
+	print("  /pl panel on|off  - the PugLogs applicant panel next to the Group Finder (sorted, filtered)")
+	print("  /pl panel invite on|off  - experimental Invite/Decline buttons in that panel")
 	print("  /pl debug  - show which dungeon PugLogs detects")
 	print("  /pl debug on|off  - show each step of a paste request in chat (for bug reports)")
 	print("  /pl live on|off  - send applicants to the PugLogs window on your computer")
@@ -204,6 +206,8 @@ SlashCmdList.PUGLOGS = function(msg)
 		ns.OpenFilters()
 	elseif msg == "paste" then
 		ns.OpenPasteBox()
+	elseif ns.HandlePanelSlash and ns.HandlePanelSlash(msg) then
+		return
 	elseif ns.HandleLiveSlash and ns.HandleLiveSlash(msg) then
 		return
 	elseif msg == "debug" then

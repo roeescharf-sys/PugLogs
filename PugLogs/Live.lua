@@ -147,6 +147,9 @@ local function OnPasted(editBox)
 	end
 	SetWarning(nil)
 	PugLogsDB.liveData = data -- also kept through /reload
+	if ns.OnPanelChanged then
+		ns.OnPanelChanged()
+	end
 	pasteFrame:Hide()
 	ns.Print(("Loaded %d player(s) for %s%s. Hover over applicants to see their run."):format(
 		data.count, data.dungeon ~= "" and data.dungeon or "?", data.keyLevel > 0 and (" +" .. data.keyLevel) or ""))
@@ -369,6 +372,18 @@ local function AddSpecLine(entry, applicantID, memberIdx)
 	end
 end
 
+-- The pasted run for a player ("Name-Realm"), if the pasted results are for the dungeon you're
+-- listing now. Also used by the applicant panel (Panel.lua).
+function ns.LiveEntry(fullName)
+	local data = ns.LiveEnabled() and PugLogsDB.liveData
+	local dungeon = ns.GetListingDungeon()
+	if not (data and fullName and dungeon and dungeon.wclEncounterID == data.encounterID) then
+		return nil
+	end
+	local name, realm = ns.SplitNameRealm(fullName)
+	return data.players[(name .. "-" .. ns.GetRealmSlug(realm)):lower()]
+end
+
 local function AddApplicantLines(applicantID, memberIdx)
 	local dungeon = ns.GetListingDungeon()
 	if not dungeon then
@@ -414,6 +429,10 @@ local function AddApplicantLines(applicantID, memberIdx)
 	end
 	GameTooltip:Show()
 end
+
+-- Shared with the applicant panel (Panel.lua).
+ns.AddApplicantTooltip = AddApplicantLines
+ns.PercentColor = PercentColor
 
 local function OnApplicantEnter(self)
 	local parent = self:GetParent()
