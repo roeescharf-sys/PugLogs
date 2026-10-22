@@ -124,8 +124,8 @@ local function RoleText(role)
 	return role and role:sub(1, 1) or "?"
 end
 
--- "+19 87" in the colour of the percentile ("+19 350K" when sorting by DPS), or why there's no run.
-local function RunText(m, showDps)
+-- "+19 87 350K": key (green timed / red over), DPS percentile in its colour, DPS; or why there's no run.
+local function RunText(m)
 	local e = m.entry
 	if not e then
 		return "|cff888888not loaded|r"
@@ -136,11 +136,9 @@ local function RunText(m, showDps)
 	end
 	local key = ("%s+%d|r"):format(e.timed and "|cff4ec36a" or "|cffe0624f", e.key or 0)
 	local pct = e.percent and ("|cff%s%d|r"):format(ns.PercentColor(e.percent), math.floor(e.percent)) or "-"
-	if showDps then
-		pct = e.dps and ("|cff%s%dK|r"):format(ns.PercentColor(e.percent), math.floor(e.dps / 1000)) or "-"
-	end
+	local dps = e.dps and (" |cffffffff%dK|r"):format(math.floor(e.dps / 1000)) or ""
 	local mark = e.specMismatch == 2 and " |cffff6b5b!|r" or (e.specMismatch == 1 and " |cffffb347*|r" or "")
-	return key .. " " .. pct .. mark
+	return key .. " " .. pct .. dps .. mark
 end
 
 local function CreateRow(index)
@@ -153,15 +151,15 @@ local function CreateRow(index)
 	row.role:SetPoint("LEFT", 2, 0)
 	row.name = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 	row.name:SetPoint("LEFT", 22, 0)
-	row.name:SetWidth(108)
+	row.name:SetWidth(100)
 	row.name:SetJustifyH("LEFT")
 	row.name:SetWordWrap(false)
 	row.ilvl = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-	row.ilvl:SetPoint("LEFT", 132, 0)
+	row.ilvl:SetPoint("LEFT", 124, 0)
 	row.score = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-	row.score:SetPoint("LEFT", 162, 0)
+	row.score:SetPoint("LEFT", 152, 0)
 	row.run = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-	row.run:SetPoint("LEFT", 200, 0)
+	row.run:SetPoint("LEFT", 186, 0)
 
 	-- Experimental: invite / decline from the panel (/pl panel invite on).
 	row.invite = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
@@ -228,7 +226,7 @@ local function Refresh()
 			row.name:SetText(("%s|c%s%s|r"):format(n > 1 and "  " or "", ClassColor(m.class), shortName))
 			row.ilvl:SetText(m.ilvl > 0 and m.ilvl or "-")
 			row.score:SetText(m.score > 0 and m.score or "-")
-			row.run:SetText(RunText(m, settings.panelSort == "dps"))
+			row.run:SetText(RunText(m))
 			local buttons = settings.panelInvite and n == 1 and app.status == "applied"
 			row.invite.applicantID, row.decline.applicantID = app.id, app.id
 			row.invite:SetShown(buttons)
