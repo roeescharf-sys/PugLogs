@@ -86,6 +86,11 @@ local ready = false
 local requestCodes = 1 -- QR codes in the current request (more codes take the companion longer)
 local retries = 0
 local MAX_RETRIES = 10
+local openedAt -- GetTime() when the paste box was opened
+local readyAt -- GetTime() when the box last said "Ready"
+-- A wrong paste soon after "Ready" is usually the app still copying: asking again (new codes
+-- on screen) only delays it further, pasting once more works.
+local RESEND_AFTER = 8
 
 local function SetWarning(text)
 	pasteFrame.warning:SetText(text or "")
@@ -107,6 +112,7 @@ local function StartFallback()
 	readyTimer = C_Timer.NewTimer(GIVE_UP_AFTER, function()
 		readyTimer = nil
 		ready = true
+		readyAt = GetTime()
 		SetHint(("Taking long - press %s to try, or click Copy for WoW in the PugLogs window."):format(PASTE_KEY), 1, 0.7, 0.3)
 	end)
 end
@@ -124,6 +130,16 @@ local function AskAgain(why)
 	ns.RequestCopy()
 end
 
+-- The paste wasn't the answer to this box. Ask the app again only when it has had plenty of
+-- time to answer; otherwise the next Cmd+V usually works.
+local function WrongPaste(why)
+	if readyAt and GetTime() - readyAt >= RESEND_AFTER then
+		AskAgain(why)
+		return
+	end
+	SetHint(why .. (" Press %s again."):format(PASTE_KEY), 1, 0.7, 0.3)
+end
+
 local function OnPasted(editBox)
 	local text = strtrim(editBox:GetText() or "")
 	if text == "" then
@@ -131,23 +147,31 @@ local function OnPasted(editBox)
 	end
 	editBox:SetText("")
 	local data = Parse(text)
+	ns.TracePaste(("pasted %s, request %s, waiting for %s"):format(data and "results" or "other text",
+		tostring(data and data.request), tostring(ns.lastPasteRequest)))
 	if not data then
 		if ready then
-			AskAgain("That wasn't PugLogs results.")
+			WrongPaste("That wasn't PugLogs results.")
 		else
 			SetHint(("Not ready yet - wait for \"Ready\", then press %s."):format(PASTE_KEY), 1, 0.7, 0.3)
 		end
 		return
 	end
-	-- Only accept the answer to this box's own request: anything else on the clipboard is
-	-- older results (e.g. from a previous paste) and would hide newer applicants.
-	local stale = data.request and ns.lastPasteRequest and data.request ~= ns.lastPasteRequest
-	if not ready then
-		SetHint(("Not ready yet - wait for \"Ready\", then press %s."):format(PASTE_KEY), 1, 0.7, 0.3)
+	-- Accept the answer to any request this box made (an earlier one is only seconds old).
+	-- Anything else on the clipboard is older results (e.g. from a previous paste) and would
+	-- hide newer applicants.
+	local requested = data.request and ns.pasteRequests[data.request]
+	local fromThisBox = requested and openedAt and requested >= openedAt
+	if data.request and not fromThisBox then
+		if ready then
+			WrongPaste("Those were older results.")
+		else
+			SetHint(("Not ready yet - wait for \"Ready\", then press %s."):format(PASTE_KEY), 1, 0.7, 0.3)
+		end
 		return
 	end
-	if stale then
-		AskAgain("Those were older results.")
+	if not ready and not fromThisBox then
+		SetHint(("Not ready yet - wait for \"Ready\", then press %s."):format(PASTE_KEY), 1, 0.7, 0.3)
 		return
 	end
 	if data.encounterID == 0 and data.count == 0 then
@@ -178,6 +202,7 @@ local function CreatePasteFrame()
 	frame:SetFrameStrata("DIALOG")
 	frame:SetToplevel(true)
 	frame:EnableMouse(true)
+	frame:SetScript("OnMouseDown", function(self) self.editBox:SetFocus() end) -- Cmd+V needs the box focused
 	frame:SetBackdrop({
 		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
 		edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
@@ -230,6 +255,8 @@ function ns.OpenPasteBox()
 	pasteFrame.editBox:SetText("")
 	ready = false
 	retries = 0
+	openedAt = GetTime()
+	readyAt = nil
 	SetWarning(nil)
 	SetHint("Getting the latest results...", 0.7, 0.7, 0.7)
 	StartFallback()
@@ -271,7 +298,9 @@ function ns.OnPasteRequestDone(delivered)
 	readyTimer = C_Timer.NewTimer(COPY_TIME + 0.6 * (requestCodes - 1), function()
 		readyTimer = nil
 		ready = true
+		readyAt = GetTime()
 		SetHint(("Ready - press %s"):format(PASTE_KEY), 0.3, 1, 0.4)
+		pasteFrame.editBox:SetFocus() -- clicking the Group Finder meanwhile takes it away
 	end)
 end
 

@@ -1,5 +1,6 @@
 """Watches WoW's Screenshots folder for PugLogs QR codes."""
 import os
+import sys
 import threading
 import time
 
@@ -60,6 +61,24 @@ def decode_file(path):
     return None
 
 
+STALE_AFTER = 30  # seconds: codes this much older than the newest waiting one are skipped
+
+
+def _keep_awake():
+    """macOS slows an app with a hidden window to a crawl (App Nap): screenshots then pile up
+    for minutes and the paste box gets its answer far too late. Tell macOS we're busy.
+    The Mac can still go to sleep. Returns a token that must be kept."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        from Foundation import NSProcessInfo
+    except ImportError:
+        return None
+    user_initiated_allowing_sleep = 0x00FFFFFF  # NSActivityUserInitiatedAllowingIdleSystemSleep
+    return NSProcessInfo.processInfo().beginActivityWithOptions_reason_(
+        user_initiated_allowing_sleep, "Reading PugLogs codes from WoW screenshots")
+
+
 class Inbox:
     def __init__(self, folder, on_page, log):
         self.folder = folder
@@ -72,6 +91,7 @@ class Inbox:
         self.no_code_shots = 0       # new screenshots without a PugLogs code since then
 
     def start(self):
+        self._awake = _keep_awake()
         threading.Thread(target=self._run, daemon=True).start()
 
     def _files(self):
@@ -92,24 +112,40 @@ class Inbox:
     def _run(self):
         # Old PugLogs screenshots (e.g. taken while this program wasn't running) are
         # deleted but not used. The user's own screenshots are never touched.
+        # Reading hundreds of them takes a minute, so it's done on the side: new codes (a paste
+        # request) are read right away. Recent ones go through the loop below.
         started = time.time()
+        old = []
         for path in self._files():
-            self._seen[path] = os.path.getmtime(path)
-            if self._seen[path] < started - 120:
-                self._handle(path, use=False)
-            else:
-                self._handle(path, use=True)
+            try:
+                mtime = os.path.getmtime(path)
+            except FileNotFoundError:
+                continue
+            if mtime < started - 120:
+                self._seen[path] = mtime
+                old.append(path)
+        threading.Thread(target=self._clear, args=(old,), daemon=True).start()
         while True:
+            waiting = []
             for path in self._files():
                 try:
                     mtime = os.path.getmtime(path)
                 except FileNotFoundError:
                     continue
                 if self._seen.get(path) != mtime:
-                    self._seen[path] = mtime
-                    self._wait_until_written(path)
-                    self._handle(path, use=True)
+                    waiting.append((path, mtime))
+            newest = waiting[-1][1] if waiting else 0
+            for path, mtime in waiting:
+                self._seen[path] = mtime
+                self._wait_until_written(path)
+                # If we fell behind, old codes are out of date: clear them away unused, so the
+                # latest applicant list and paste request are read without waiting for them.
+                self._handle(path, use=mtime >= newest - STALE_AFTER)
             time.sleep(0.25)
+
+    def _clear(self, paths):
+        for path in paths:
+            self._handle(path, use=False, retry=False)
 
     @staticmethod
     def _wait_until_written(path):
@@ -124,13 +160,13 @@ class Inbox:
             last = size
             time.sleep(0.15)
 
-    def _handle(self, path, use):
+    def _handle(self, path, use, retry=True):
         try:
             page = decode_file(path)
         except Exception as e:  # usually a screenshot WoW is still writing: try again shortly
             tries = self._attempts.get(path, 0) + 1
             self._attempts[path] = tries
-            if tries < 10:
+            if retry and tries < 10:
                 self._seen.pop(path, None)  # picked up again on the next check
             else:
                 self.log(f"Could not read {os.path.basename(path)}: {e}")

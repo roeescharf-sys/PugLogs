@@ -244,6 +244,7 @@ local function BuildPages(dungeon, lines, filtered, flags)
 	local batch = GetServerTime() .. "-" .. batchCounter
 	if flags == "R" then
 		ns.lastPasteRequest = batch -- the companion sends it back with the results
+		ns.pasteRequests[batch] = GetTime()
 	end
 	local encounterID = dungeon and dungeon.wclEncounterID or 0
 	local keyLevel = GetListingKeyLevel(dungeon)
@@ -288,6 +289,8 @@ local function Trace(text)
 		ns.Print("|cff888888[paste] " .. text .. "|r")
 	end
 end
+ns.TracePaste = Trace
+ns.pasteRequests = {} -- paste request ID -> GetTime() when it was made
 local lastProgressAt -- GetTime() when the running capture last drew a code
 local pagesFlag -- request flag carried by the running capture ("R" = paste box), if any
 local STALE_AFTER = FAILSAFE + 3
@@ -376,6 +379,13 @@ frameWaiter:SetScript("OnUpdate", function(self)
 end)
 
 local function CaptureNextPage()
+	-- The paste box is waiting: its request carries the whole applicant list, so the rest of
+	-- this update isn't needed - send the request now instead of making it wait.
+	if queuedRequest == "R" and pagesFlag ~= "R" then
+		Trace("update cut short for the waiting request")
+		FinishCapture()
+		return
+	end
 	pageIndex = pageIndex + 1
 	local text = pages and pages[pageIndex]
 	if not text then
@@ -584,6 +594,7 @@ function ns.SendRequest(flag)
 		local batch = "req-" .. GetServerTime() .. "-" .. batchCounter
 		if flag == "R" then
 			ns.lastPasteRequest = batch
+			ns.pasteRequests[batch] = GetTime()
 		end
 		pages = { table.concat({ "PL2", batch, 1, 1, ns.REGION, 0, 0, "", flag }, "\t") }
 	end

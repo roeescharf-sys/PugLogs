@@ -130,6 +130,14 @@ local function Sort(list, by)
 			bestRole = math.min(bestRole, ROLE_ORDER[m.role or ""] or 4)
 		end
 		app.roleGroup = bestRole
+		-- In a group, the member who puts it in its role group comes first (a tank leading the DPS).
+		table.sort(app.members, function(a, b)
+			local ra, rb = ROLE_ORDER[a.role or ""] or 4, ROLE_ORDER[b.role or ""] or 4
+			if ra ~= rb then
+				return ra < rb
+			end
+			return a.idx < b.idx
+		end)
 	end
 	table.sort(list, function(a, b)
 		if a.roleGroup ~= b.roleGroup then
