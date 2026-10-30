@@ -221,6 +221,10 @@ class Lookup:
         if not ranks:
             return None
         r, reason = pick_featured(ranks, key_level, member.role)
+        start = r.get("startTime")
+        if start:
+            t = time.localtime(start / 1000)
+            reason += ", %d %s %d" % (t.tm_mday, time.strftime("%b", t), t.tm_year)
         also = []
         for other in metrics[1:]:
             # The other number of the same run when it's there, else their best one by itself.

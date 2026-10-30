@@ -26,6 +26,8 @@ local panel, rows, sortButtons, footer, tabs, playerButtons
 local refreshPending = false
 local standalone = false -- "My players" opened on its own (from /pl opt)
 local playerRole, playerMark, playerOffset = "all", "all", 0
+local applicantOffset = 0
+local filteredList = {}
 
 local function Settings()
 	PugLogsDB = PugLogsDB or {}
@@ -52,7 +54,7 @@ end
 -- Returns the applications to show (filtered and hidden Avoid ones left out), how many were
 -- filtered and how many were hidden as Avoid.
 local function CollectApplications()
-	local list, filtered, avoided = {}, 0, 0
+	local list, filtered, avoided, filteredDetails = {}, 0, 0, {}
 	local ok, ids = pcall(C_LFGList.GetApplicants)
 	for order, id in ipairs(ok and ids or {}) do
 		local info = not ns.IsSecret(id) and C_LFGList.GetApplicantInfo(id)
@@ -60,6 +62,16 @@ local function CollectApplications()
 		if status == "applied" or status == "invited" then
 			if ns.ApplicationFiltered and ns.ApplicationFiltered(id) then
 				filtered = filtered + 1
+				for memberIdx = 1, (Clean(info.numMembers) or 0) do
+					local name, classFile = C_LFGList.GetApplicantMemberInfo(id, memberIdx)
+					name = Clean(name)
+					local reason = name and ns.ApplicantFilterReason and ns.ApplicantFilterReason(id, memberIdx)
+					if name and reason then
+						filteredDetails[#filteredDetails + 1] = {
+							name = name:match("^[^-]+") or name, class = Clean(classFile), reason = reason,
+						}
+					end
+				end
 			elseif ns.ApplicationAvoided and ns.ApplicationAvoided(id) then
 				avoided = avoided + 1
 			else
@@ -84,7 +96,7 @@ local function CollectApplications()
 			end
 		end
 	end
-	return list, filtered, avoided
+	return list, filtered, avoided, filteredDetails
 end
 
 -- Sort value for one application (higher first); a group counts as its best member.
@@ -113,8 +125,16 @@ end
 local function Sort(list, by)
 	for _, app in ipairs(list) do
 		app.sortValue = SortValue(app, by)
+		local bestRole = 4
+		for _, m in ipairs(app.members) do
+			bestRole = math.min(bestRole, ROLE_ORDER[m.role or ""] or 4)
+		end
+		app.roleGroup = bestRole
 	end
 	table.sort(list, function(a, b)
+		if a.roleGroup ~= b.roleGroup then
+			return a.roleGroup < b.roleGroup
+		end
 		if a.sortValue ~= b.sortValue then
 			return a.sortValue > b.sortValue
 		end
@@ -267,8 +287,12 @@ local function RefreshPlayers()
 		row.role:SetText(RoleText(saved.role))
 		row.name:SetText(("%s |c%s%s|r"):format(ns.MarkText(saved.mark), ClassColor(saved.class), saved.name))
 		row.ilvl:SetText(saved.spec or "")
+		row.ilvl:SetWidth(58)
+		row.ilvl:SetWordWrap(false)
 		row.score:SetText("")
 		row.run:SetText(saved.note or "")
+		row.run:SetWidth(140)
+		row.run:SetWordWrap(false)
 		row.invite:Hide()
 		row.decline:Hide()
 		row:Show()
@@ -306,33 +330,40 @@ local function Refresh()
 		RefreshPlayers()
 		return
 	end
-	local list, filtered, avoided = CollectApplications()
+	local list, filtered, avoided, newFilteredList = CollectApplications()
 	Sort(list, settings.panelSort)
+	filteredList = newFilteredList
 
-	local index, shownApps = 0, 0
+	local allMembers = {}
 	for _, app in ipairs(list) do
-		if index + #app.members > MAX_ROWS then
-			break
-		end
-		shownApps = shownApps + 1
 		for n, m in ipairs(app.members) do
-			index = index + 1
-			local row = rows[index] or CreateRow(index)
-			rows[index] = row
-			row.applicantID, row.memberIdx, row.fullName, row.savedKey = app.id, m.idx, m.name, nil
-			row.role:SetText(RoleText(m.role))
-			local shortName = m.name:match("^[^-]+") or m.name
-			row.name:SetText(("%s%s|c%s%s|r"):format(n > 1 and "  " or "", m.saved and (ns.MarkText(m.saved.mark) .. " ") or "",
-				ClassColor(m.class), shortName))
-			row.ilvl:SetText(m.ilvl > 0 and m.ilvl or "-")
-			row.score:SetText(m.score > 0 and m.score or "-")
-			row.run:SetText(RunText(m))
-			local buttons = settings.panelInvite and n == 1 and app.status == "applied"
-			row.invite.applicantID, row.decline.applicantID = app.id, app.id
-			row.invite:SetShown(buttons)
-			row.decline:SetShown(buttons)
-			row:Show()
+			allMembers[#allMembers + 1] = { app = app, member = m, num = n }
 		end
+	end
+	applicantOffset = math.max(0, math.min(applicantOffset, math.max(0, #allMembers - MAX_ROWS)))
+
+	local index = 0
+	for i = applicantOffset + 1, math.min(#allMembers, applicantOffset + MAX_ROWS) do
+		index = index + 1
+		local item = allMembers[i]
+		local app, m, n = item.app, item.member, item.num
+		local row = rows[index] or CreateRow(index)
+		rows[index] = row
+		row.applicantID, row.memberIdx, row.fullName, row.savedKey = app.id, m.idx, m.name, nil
+		row.role:SetText(RoleText(m.role))
+		local shortName = m.name:match("^[^-]+") or m.name
+		row.name:SetText(("%s%s|c%s%s|r"):format(n > 1 and "  " or "", m.saved and (ns.MarkText(m.saved.mark) .. " ") or "",
+			ClassColor(m.class), shortName))
+		row.ilvl:SetText(m.ilvl > 0 and m.ilvl or "-")
+		row.ilvl:SetWidth(0)
+		row.score:SetText(m.score > 0 and m.score or "-")
+		row.run:SetText(RunText(m))
+		row.run:SetWidth(0)
+		local buttons = settings.panelInvite and n == 1 and app.status == "applied"
+		row.invite.applicantID, row.decline.applicantID = app.id, app.id
+		row.invite:SetShown(buttons)
+		row.decline:SetShown(buttons)
+		row:Show()
 	end
 	for i = index + 1, #rows do
 		rows[i]:Hide()
@@ -340,11 +371,10 @@ local function Refresh()
 	end
 
 	local notes = {}
-	if #list == 0 then
+	if #allMembers == 0 then
 		notes[#notes + 1] = "No applicants yet."
-	end
-	if shownApps < #list then
-		notes[#notes + 1] = ("%d more not shown"):format(#list - shownApps)
+	elseif #allMembers > MAX_ROWS then
+		notes[#notes + 1] = ("%d-%d of %d"):format(applicantOffset + 1, math.min(applicantOffset + MAX_ROWS, #allMembers), #allMembers)
 	end
 	if filtered > 0 then
 		notes[#notes + 1] = ("%d filtered out"):format(filtered)
@@ -456,6 +486,7 @@ local function CreatePanel()
 		b:SetPoint("TOPLEFT", panel, "TOPLEFT", 10 + (i - 1) * 100, -6)
 		b:SetScript("OnClick", function()
 			Settings().panelTab = t[1]
+			applicantOffset, playerOffset = 0, 0
 			ns.OnPanelChanged()
 		end)
 		tabs[t[1]] = b
@@ -484,12 +515,13 @@ local function CreatePanel()
 	local prev
 	for _, s in ipairs(SORTS) do
 		local b = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-		b:SetSize(52, 18)
 		b:SetText(s.label)
+		b:SetSize(b:GetFontString():GetStringWidth() + 16, 18)
 		b.key = s.key
 		b:SetPoint("TOPLEFT", prev or panel, prev and "TOPRIGHT" or "TOPLEFT", prev and 4 or 10, prev and 0 or -28)
 		b:SetScript("OnClick", function()
 			Settings().panelSort = s.key
+			applicantOffset = 0
 			ns.OnPanelChanged()
 		end)
 		sortButtons[#sortButtons + 1] = b
@@ -500,8 +532,8 @@ local function CreatePanel()
 	playerButtons, prev = {}, nil
 	for _, r in ipairs(PLAYER_ROLES) do
 		local b = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-		b:SetSize(44, 18)
 		b:SetText(r.label)
+		b:SetSize(b:GetFontString():GetStringWidth() + 16, 18)
 		b.role = r.key
 		b:SetPoint("TOPLEFT", prev or panel, prev and "TOPRIGHT" or "TOPLEFT", prev and 4 or 10, prev and 0 or -28)
 		b:SetScript("OnClick", function()
@@ -513,8 +545,8 @@ local function CreatePanel()
 	end
 	for i, mark in ipairs({ "all", "good", "okay", "avoid" }) do
 		local b = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-		b:SetSize(mark == "all" and 52 or 30, 18)
 		b:SetText(mark == "all" and "Marks" or (ns.MarkText and ns.MarkText(mark) or mark))
+		b:SetSize(math.max(b:GetFontString():GetStringWidth() + 16, 26), 18)
 		b.mark = mark
 		b:SetPoint("TOPLEFT", prev, "TOPRIGHT", i == 1 and 12 or 4, 0)
 		b:SetScript("OnClick", function()
@@ -528,14 +560,36 @@ local function CreatePanel()
 	panel:SetScript("OnMouseWheel", function(_, delta)
 		if Settings().panelTab == "players" then
 			playerOffset = math.max(0, playerOffset - delta * 3)
-			ns.OnPanelChanged()
+		else
+			applicantOffset = math.max(0, applicantOffset - delta * 3)
 		end
+		ns.OnPanelChanged()
 	end)
 
 	footer = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
 	footer:SetPoint("BOTTOMLEFT", 12, 10)
 	footer:SetWidth(326)
 	footer:SetJustifyH("LEFT")
+
+	local footerHit = CreateFrame("Frame", nil, panel)
+	footerHit:SetPoint("BOTTOMLEFT", 12, 6)
+	footerHit:SetSize(326, 20)
+	footerHit:EnableMouse(true)
+	footerHit:SetScript("OnEnter", function(self)
+		if Settings().panelTab ~= "applicants" or #filteredList == 0 then return end
+		GameTooltip:SetOwner(self, "ANCHOR_TOP")
+		GameTooltip:SetText("Filtered out:")
+		local shown = math.min(#filteredList, 15)
+		for i = 1, shown do
+			local f = filteredList[i]
+			GameTooltip:AddLine("|c" .. ClassColor(f.class) .. f.name .. "|r  " .. f.reason, 1, 1, 1, true)
+		end
+		if #filteredList > 15 then
+			GameTooltip:AddLine(("and %d more"):format(#filteredList - 15), 0.6, 0.6, 0.6)
+		end
+		GameTooltip:Show()
+	end)
+	footerHit:SetScript("OnLeave", GameTooltip_Hide)
 
 	rows = {}
 	viewer:HookScript("OnShow", UpdateShown)

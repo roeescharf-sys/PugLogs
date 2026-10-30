@@ -85,7 +85,7 @@ local readyTimer
 local ready = false
 local requestCodes = 1 -- QR codes in the current request (more codes take the companion longer)
 local retries = 0
-local MAX_RETRIES = 3
+local MAX_RETRIES = 10
 
 local function SetWarning(text)
 	pasteFrame.warning:SetText(text or "")
@@ -112,17 +112,14 @@ local function StartFallback()
 end
 
 local function AskAgain(why)
-	-- Once is usually something you copied; twice in a row means the companion isn't answering.
-	if retries >= 1 then
-		SetWarning(("No answer from the PugLogs app - is it running? Start it, then press %s again."):format(PASTE_KEY))
-	end
 	if retries >= MAX_RETRIES then
+		SetWarning(("No answer from the PugLogs app - is it running? Start it, then press %s again."):format(PASTE_KEY))
 		SetHint(why .. (" Click Copy for WoW in the PugLogs window, then press %s."):format(PASTE_KEY), 1, 0.4, 0.3)
 		return
 	end
 	retries = retries + 1
 	ready = false
-	SetHint(why .. " Getting the results again...", 1, 0.7, 0.3)
+	SetHint(why .. (" Trying again... press %s when it says Ready."):format(PASTE_KEY), 1, 0.7, 0.3)
 	StartFallback()
 	ns.RequestCopy()
 end
@@ -135,9 +132,6 @@ local function OnPasted(editBox)
 	editBox:SetText("")
 	local data = Parse(text)
 	if not data then
-		-- Not PugLogs data. Show what arrived (start and length) so a report can say why.
-		local preview = text:sub(1, 40):gsub("|", "||")
-		ns.Print(("Paste box got %d characters that aren't PugLogs results, starting: %s"):format(#text, preview))
 		if ready then
 			AskAgain("That wasn't PugLogs results.")
 		else
@@ -154,6 +148,10 @@ local function OnPasted(editBox)
 	end
 	if stale then
 		AskAgain("Those were older results.")
+		return
+	end
+	if data.encounterID == 0 and data.count == 0 then
+		AskAgain("The PugLogs app is still loading.")
 		return
 	end
 	SetWarning(nil)

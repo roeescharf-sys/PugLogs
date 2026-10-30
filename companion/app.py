@@ -339,6 +339,8 @@ def copy_for_wow(force=False, restore=False):
         if not (state.auto_copy or force):
             return False
         text = export.build(state.listing, state.members, state.results, result_key, state.paste_request)
+        if not text and force and state.paste_request:
+            text = f"PLR1;0;0;;!pending,0;!req,{export._clean(state.paste_request)};!keep,1"
         if not text or (text == state.copied_text and not force):
             return False
     try:
