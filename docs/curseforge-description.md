@@ -42,7 +42,8 @@ Currently EU realms only.
 
 ## Commands
 
-`/pl` - all commands, `/pl opt` - settings and filters, `/pl paste` - load results into
-tooltips, `/pl wcl` - Warcraft Logs API key, `/pl app` - app download link
+`/pl opt` - settings, filters and the app download link, `/pl Name-Realm` - link to a player's
+logs. Everything else is a button: **Paste logs** next to the Group Finder, **Check logs** in the
+right-click menu.
 
 Source code, help and issues: https://github.com/roeescharf-sys/PugLogs

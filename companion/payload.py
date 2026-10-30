@@ -32,6 +32,7 @@ SPECS = {
     "DEMONHUNTER": ["Havoc", "Vengeance", "Devourer"],
     "EVOKER": ["Devastation", "Preservation", "Augmentation"],
 }
+MARKS = {"G": "good", "O": "okay", "A": "avoid"}
 CLASS_NAMES = {"WARRIOR": "Warrior", "PALADIN": "Paladin", "HUNTER": "Hunter", "ROGUE": "Rogue",
                "PRIEST": "Priest", "DEATHKNIGHT": "Death Knight", "SHAMAN": "Shaman", "MAGE": "Mage",
                "WARLOCK": "Warlock", "MONK": "Monk", "DRUID": "Druid", "DEMONHUNTER": "Demon Hunter",
@@ -54,6 +55,7 @@ class Member:
     item_level: int
     score: int
     spec_index: int = 0       # position of their spec within the class (1-4), 0 = unknown
+    mark: str = ""            # your mark in WoW's "My players": "good", "okay", "avoid" or ""
 
     @property
     def key(self):
@@ -97,6 +99,7 @@ def parse(text):
             continue
         class_file = CLASS_FILES.get(_int(f[3]), "")
         spec_index = _int(f[7]) if len(f) > 7 else 0
+        mark = MARKS.get(f[8], "") if len(f) > 8 else ""
         page.members.append(Member(_int(f[0]), f[1], f[2], class_file, spec_name(class_file, spec_index),
-                                   ROLES.get(f[4], ""), _int(f[5]), _int(f[6]), spec_index))
+                                   ROLES.get(f[4], ""), _int(f[5]), _int(f[6]), spec_index, mark))
     return page

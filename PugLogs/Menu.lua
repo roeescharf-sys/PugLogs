@@ -11,13 +11,26 @@ Menu.ModifyMenu("MENU_LFG_FRAME_MEMBER_APPLY", function(owner, rootDescription)
 	if not applicantID or not memberIdx then
 		return
 	end
-	local name = C_LFGList.GetApplicantMemberInfo(applicantID, memberIdx)
+	local name, classFile, _, _, _, _, _, _, _, role, _, _, _, _, _, specID = C_LFGList.GetApplicantMemberInfo(applicantID, memberIdx)
 	if not name or ns.IsSecret(name) then
 		return
 	end
 	rootDescription:CreateDivider()
 	rootDescription:CreateButton(BUTTON_TEXT, function()
 		ns.ShowLogsFor(name)
+	end)
+	if ns.LiveEnabled() then
+		rootDescription:CreateButton("Look up logs again", function()
+			ns.LookUpAgain(name)
+		end)
+	end
+	if not ns.SavedPlayerMenuText then
+		return -- My players needs a full restart of WoW after updating
+	end
+	rootDescription:CreateButton(ns.SavedPlayerMenuText(name), function()
+		local spec = ns.SpecInfo(specID)
+		ns.OpenPlayerDialog(name, nil, { class = not ns.IsSecret(classFile) and classFile or nil, spec = spec,
+			role = not ns.IsSecret(role) and role or nil })
 	end)
 end)
 
@@ -39,6 +52,29 @@ for _, which in ipairs(UNIT_MENUS) do
 		rootDescription:CreateDivider()
 		rootDescription:CreateButton(BUTTON_TEXT, function()
 			ns.ShowLogsFor(name, realm)
+		end)
+		if which == "PARTY" and ns.GroupLookupsActive() then
+			rootDescription:CreateButton("Look up logs again", function()
+				ns.LookUpAgain((realm and realm ~= "") and (name .. "-" .. realm) or name, ns.GetGroupDungeon())
+			end)
+		end
+		if not ns.SavedPlayerMenuText then
+			return -- My players needs a full restart of WoW after updating
+		end
+		rootDescription:CreateButton(ns.SavedPlayerMenuText(name, realm), function()
+			local info, unit = {}, contextData.unit
+			if unit and UnitExists(unit) then
+				local _, classFile = UnitClass(unit)
+				local role = UnitGroupRolesAssigned(unit)
+				info.class = not ns.IsSecret(classFile) and classFile or nil
+				info.role = (not ns.IsSecret(role) and role ~= "NONE") and role or nil
+				for _, m in ipairs(ns.groupMembers or {}) do
+					if m.name == name and m.specID then
+						info.spec, info.role = ns.SpecInfo(m.specID)
+					end
+				end
+			end
+			ns.OpenPlayerDialog(name, realm, info)
 		end)
 	end)
 end

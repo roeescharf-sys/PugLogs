@@ -20,4 +20,9 @@ ns.Season = {
 		{ name = "The Blinding Vale",    wclEncounterID = 12859,  challengeMapID = 584, mapID = 2859, activityIDs = { 1699, 1700, 1701, 1949 } },
 		{ name = "Voidscar Arena",       wclEncounterID = 12923,  challengeMapID = 585, mapID = 2923, activityIDs = { 1754, 1755, 1756, 1951 } },
 	},
+	-- Current raids (for raid lookups): the name as the Group Finder shows it, and the
+	-- raid's zone ID on Warcraft Logs.
+	raids = {
+		{ name = "The Venomous Abyss", wclZoneID = 53 },
+	},
 }

@@ -84,12 +84,15 @@ local function ApplicationStatus(applicantID)
 end
 
 function ns.ApplicantFilterReason(applicantID, memberIdx)
+	if not ns.GetListingDungeon() then
+		return nil -- the filters are for Mythic+ listings (not raids)
+	end
 	local fullName, classFile, _, _, itemLevel, _, _, _, _, assignedRole, _, score, _, _, _, specID =
 		C_LFGList.GetApplicantMemberInfo(applicantID, memberIdx)
 	local entry = ns.LiveEntry and ns.LiveEntry(Clean(fullName))
 	return ns.FilterReason({
 		classFile = Clean(classFile), specID = Clean(specID), role = Clean(assignedRole),
-		dps = entry and entry.dps,
+		dps = ns.EntryDamage and ns.EntryDamage(entry),
 		itemLevel = math.floor(Clean(itemLevel) or 0), rating = math.floor(Clean(score) or 0),
 		invited = INVITED[ApplicationStatus(applicantID)] or false,
 	})
@@ -115,11 +118,6 @@ local ROLE_SORT_ORDER = { TANK = 1, HEALER = 2, DAMAGER = 3 }
 -- Sort key for one application (lower sorts first); a group counts as its best member.
 local function SortKey(applicantID, sortBy)
 	local info = C_LFGList.GetApplicantInfo(applicantID)
-	local data = PugLogsDB.liveData
-	local dungeon = ns.GetListingDungeon()
-	if data and not (dungeon and dungeon.wclEncounterID == data.encounterID) then
-		data = nil -- results from another listing
-	end
 	local best
 	for memberIdx = 1, (info and Clean(info.numMembers)) or 0 do
 		local fullName, _, _, _, _, _, _, _, _, assignedRole, _, score = C_LFGList.GetApplicantMemberInfo(applicantID, memberIdx)
@@ -131,10 +129,9 @@ local function SortKey(applicantID, sortBy)
 		else -- log: DPS percentile of their run, from the last paste
 			value = 1
 			fullName = Clean(fullName)
-			if data and fullName then
-				local name, realm = ns.SplitNameRealm(fullName)
-				local entry = data.players[(name .. "-" .. ns.GetRealmSlug(realm)):lower()]
-				if entry and entry.percent then
+			local entry = fullName and ns.LiveEntry and ns.LiveEntry(fullName)
+			if entry then
+				if entry.percent then
 					value = -entry.percent
 				end
 			end
@@ -415,6 +412,11 @@ local function BuildPanel(panel)
 	local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
 	title:SetPoint("TOPLEFT", 16, -16)
 	title:SetText("PugLogs")
+	local appLink = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+	appLink:SetSize(190, 22)
+	appLink:SetText("PugLogs app download link")
+	appLink:SetPoint("LEFT", title, "RIGHT", 16, 0)
+	appLink:SetScript("OnClick", function() ns.ShowCopyPopup("PugLogs app - free download", ns.APP_URL) end)
 
 	local live = CreateCheckbox(panel, "Live Warcraft Logs lookups with the PugLogs app", ns.LiveEnabled(), function(on)
 		ns.SetLive(on)
@@ -425,7 +427,7 @@ local function BuildPanel(panel)
 	liveNote:SetPoint("TOPLEFT", live, "BOTTOMLEFT", 28, 0)
 	liveNote:SetWidth(580)
 	liveNote:SetJustifyH("LEFT")
-	liveNote:SetText((ns.AppInstalled() and "The PugLogs app is installed. " or "The PugLogs app isn't installed (/pl app for the link). ")
+	liveNote:SetText((ns.AppInstalled() and "The PugLogs app is installed. " or "The PugLogs app isn't installed (download link above). ")
 		.. "Off: only \"Check logs\" and the filters below - no screenshots are taken.")
 
 	local leaderOnly = CreateCheckbox(panel, "Only while I can invite (group leader or assistant)",
@@ -433,10 +435,77 @@ local function BuildPanel(panel)
 	leaderOnly:SetPoint("TOPLEFT", liveNote, "BOTTOMLEFT", -28, -8)
 	local leaderNote = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
 	leaderNote:SetPoint("TOPLEFT", leaderOnly, "BOTTOMLEFT", 28, 0)
-	leaderNote:SetText("As a group member PugLogs then stays quiet: no screenshots, no Warcraft Logs lookups.")
+	leaderNote:SetText("As a group member PugLogs then doesn't look up applicants.")
+
+	local groupLookups = CreateCheckbox(panel, "Look up the players in my group",
+		PugLogsDB.groupLookups ~= false, function(on)
+			PugLogsDB.groupLookups = on
+			ns.OnFiltersChanged() -- send the group now
+		end)
+	groupLookups:SetPoint("TOPLEFT", leaderNote, "BOTTOMLEFT", -28, -8)
+	local groupNote = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	groupNote:SetPoint("TOPLEFT", groupLookups, "BOTTOMLEFT", 28, 0)
+	groupNote:SetText("Their run shows when you hover them, after Paste logs (or /pl paste). One screenshot when someone joins.")
+
+	local raids = CreateCheckbox(panel, "Look up raid applicants", PugLogsDB.raidLookups == true, function(on)
+		PugLogsDB.raidLookups = on
+		ns.OnFiltersChanged() -- send the raid's applicants now
+	end)
+	raids:SetPoint("TOPLEFT", groupNote, "BOTTOMLEFT", -28, -8)
+	local raidNote = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	raidNote:SetPoint("TOPLEFT", raids, "BOTTOMLEFT", 28, 0)
+	raidNote:SetWidth(580)
+	raidNote:SetJustifyH("LEFT")
+	raidNote:SetText("Bosses killed and average parse at your listing's difficulty. Costs about 5 Warcraft Logs "
+		.. "API points per player (a dungeon lookup: about 1.3).")
+
+	local playersTitle = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+	playersTitle:SetPoint("TOPLEFT", raidNote, "BOTTOMLEFT", -24, -20)
+	playersTitle:SetText("My players")
+	local openPlayers = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+	openPlayers:SetSize(150, 22)
+	openPlayers:SetText("Open my players")
+	openPlayers:SetPoint("LEFT", playersTitle, "RIGHT", 12, 0)
+	openPlayers:SetScript("OnClick", function() ns.OpenMyPlayers() end)
+	local playersNote = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	playersNote:SetPoint("TOPLEFT", playersTitle, "BOTTOMLEFT", 0, -6)
+	playersNote:SetText("Right-click any player: \"Add to my players...\" to save them as Good, Okay or Avoid with a note.")
+	local hideAvoid = CreateCheckbox(panel, "Hide players I marked Avoid (in the PugLogs panel and app; not looked up)",
+		PugLogsDB.hideAvoid == true, function(on)
+			PugLogsDB.hideAvoid = on
+			Changed()
+		end)
+	hideAvoid:SetPoint("TOPLEFT", playersNote, "BOTTOMLEFT", -4, -6)
+	local announce = CreateCheckbox(panel, "Tell me in chat when a saved player applies or joins my group",
+		PugLogsDB.announceSaved ~= false, function(on) PugLogsDB.announceSaved = on end)
+	announce:SetPoint("TOPLEFT", hideAvoid, "BOTTOMLEFT", 0, -2)
+
+	local panelTitle = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+	panelTitle:SetPoint("TOPLEFT", announce, "BOTTOMLEFT", 4, -20)
+	panelTitle:SetText("Applicant panel")
+	local showPanel = CreateCheckbox(panel, "Show the PugLogs applicant panel next to the Group Finder",
+		ns.PanelSetting("panel"), function(on) ns.SetPanelSetting("panel", on) end)
+	showPanel:SetPoint("TOPLEFT", panelTitle, "BOTTOMLEFT", -4, -8)
+	local invite = CreateCheckbox(panel, "Invite and Decline buttons in the panel",
+		ns.PanelSetting("panelInvite"), function(on) ns.SetPanelSetting("panelInvite", on) end)
+	invite:SetPoint("TOPLEFT", showPanel, "BOTTOMLEFT", 0, -2)
+	local resetPos = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+	resetPos:SetSize(170, 22)
+	resetPos:SetText("Reset panel position")
+	resetPos:SetPoint("TOPLEFT", invite, "BOTTOMLEFT", 4, -6)
+	resetPos:SetScript("OnClick", function()
+		ns.ResetPanelPosition()
+		ns.Print("Applicant panel back to its automatic place (next to the Group Finder / Raider.IO).")
+	end)
+	local resetNote = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+	resetNote:SetPoint("LEFT", resetPos, "RIGHT", 8, 0)
+	resetNote:SetText("after dragging it somewhere else")
+	ns.OnPanelSettingChanged = function()
+		showPanel:SetChecked(ns.PanelSetting("panel"))
+	end
 
 	local filtersTitle = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-	filtersTitle:SetPoint("TOPLEFT", leaderNote, "BOTTOMLEFT", -24, -20)
+	filtersTitle:SetPoint("TOPLEFT", resetPos, "BOTTOMLEFT", -4, -20)
 	filtersTitle:SetText("Applicant filters")
 
 	local intro = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
@@ -535,7 +604,6 @@ local function BuildPanel(panel)
 			for _, spec in ipairs(row.specs) do
 				f.excludedSpecs[spec.specID] = not on or nil
 				spec.box:SetChecked(on)
-				spec.box:SetEnabled(on)
 			end
 		end
 		Changed()
@@ -557,31 +625,38 @@ local function BuildPanel(panel)
 		if classFile then
 			local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
 			local label = color and color:WrapTextInColorCode(className) or className
-			local specBoxes = {}
+			local row = { classFile = classFile, specs = {} }
+			-- Ticking or unticking a class does the same to all its specs.
 			local classBox = CreateCheckbox(panel, label, not f.excludedClasses[classFile], function(on)
 				f.excludedClasses[classFile] = not on or nil
-				for _, b in ipairs(specBoxes) do
-					b:SetEnabled(on)
+				for _, spec in ipairs(row.specs) do
+					f.excludedSpecs[spec.specID] = not on or nil
+					spec.box:SetChecked(on)
 				end
 				Changed()
 			end)
+			row.box = classBox
 			classBox:SetPoint("TOPLEFT", anchor == classHeader and selectAll or anchor, "BOTTOMLEFT",
 				anchor == classHeader and -4 or 0, anchor == classHeader and -6 or -2)
 			anchor = classBox
-			local row = { box = classBox, classFile = classFile, specs = {} }
 			rows[#rows + 1] = row
 
 			local specPrev
 			for index = 1, NumSpecs(classID) do
 				local specID, specName = GetSpecializationInfoForClassID(classID, index)
 				if specID then
+					-- The class stays ticked while any of its specs is ticked.
 					local box = CreateCheckbox(panel, specName, not f.excludedSpecs[specID], function(on)
 						f.excludedSpecs[specID] = not on or nil
+						local anyOn = false
+						for _, spec in ipairs(row.specs) do
+							anyOn = anyOn or spec.box:GetChecked()
+						end
+						f.excludedClasses[classFile] = not anyOn or nil
+						classBox:SetChecked(anyOn)
 						Changed()
 					end)
 					box:SetPoint("LEFT", specPrev or classBox, "RIGHT", specPrev and 100 or 130, 0)
-					box:SetEnabled(not f.excludedClasses[classFile])
-					specBoxes[#specBoxes + 1] = box
 					row.specs[#row.specs + 1] = { box = box, specID = specID }
 					specPrev = box
 				end

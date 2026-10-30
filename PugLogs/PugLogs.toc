@@ -19,4 +19,5 @@ Menu.lua
 Filters.lua
 Transport.lua
 Live.lua
+Players.lua
 Panel.lua

@@ -2,11 +2,17 @@
 --
 -- Addons can't receive data from other programs while the game runs, but they can accept
 -- text you paste. The companion keeps its results on the clipboard; open the paste box
--- (button on the applicant list, a key binding, or /pl paste) and press Cmd+V / Ctrl+V.
+-- (button on the applicant list, or a key binding) and press Cmd+V / Ctrl+V.
 -- Format (one line, from companion/export.py):
 --   PLR1;encounterID;keyLevel;dungeonName;record;record;...
 --   record = name-realmslug,key,timed,seconds,dps,percent,interrupts,dispels,deaths,damageTaken,reason,
---            runSpec,specMismatch   (0 = same spec, 1 = other spec same role, 2 = different role)
+--            runSpec,specMismatch,metric,lookedUpAt   (specMismatch: 0 = same spec, 1 = other spec
+--            same role, 2 = different role; metric: "hps" = healing per second, else damage;
+--            lookedUpAt: when the app fetched it from Warcraft Logs, Unix time)
+--            [,metric2,amount2,percent2]   (a second number, e.g. a tank's HPS)
+--   "!keep,7" = keep these results for 7 days (the app's "Keep lookups for" setting)
+-- Pasted results are kept per dungeon (PugLogsDB.liveSaved), so a player who applies again
+-- still shows their run without a new paste.
 --   (stats fields are empty when not loaded; "name-realmslug,0" = no logs in this dungeon,
 --    "name-realmslug,0,hidden" = they hid their rankings on Warcraft Logs)
 local _, ns = ...
@@ -41,6 +47,8 @@ local function Parse(text)
 			data.pending = Num(f[2]) or 0 -- applicants the companion was still looking up
 		elseif who == "!req" then
 			data.request = f[2] -- the paste request these results answer
+		elseif who == "!keep" then
+			data.keepDays = Num(f[2])
 		elseif who and who ~= "" then
 			local key = Num(f[2]) or 0
 			data.players[who:lower()] = key == 0 and { none = true, hidden = f[3] == "hidden" } or {
@@ -56,6 +64,9 @@ local function Parse(text)
 				reason = f[11],
 				runSpec = f[12],
 				specMismatch = Num(f[13]) or 0,
+				hps = f[14] == "hps", -- the amount is healing per second (healers)
+				lookedUpAt = Num(f[15]),
+				also = f[16] and f[16] ~= "" and { hps = f[16] == "hps", amount = Num(f[17]), percent = Num(f[18]) } or nil,
 			}
 			data.count = data.count + 1
 		end
@@ -147,6 +158,7 @@ local function OnPasted(editBox)
 	end
 	SetWarning(nil)
 	PugLogsDB.liveData = data -- also kept through /reload
+	ns.RememberResults(data)
 	if ns.OnPanelChanged then
 		ns.OnPanelChanged()
 	end
@@ -375,26 +387,109 @@ local function AddSpecLine(entry, applicantID, memberIdx)
 	end
 end
 
--- The pasted run for a player ("Name-Realm"), if the pasted results are for the dungeon you're
--- listing now. Also used by the applicant panel (Panel.lua).
-function ns.LiveEntry(fullName)
-	local data = ns.LiveEnabled() and PugLogsDB.liveData
-	local dungeon = ns.GetListingDungeon()
-	if not (data and fullName and dungeon and dungeon.wclEncounterID == data.encounterID) then
+-- Saved results ---------------------------------------------------------------------
+
+local DAY = 24 * 60 * 60
+
+local function KeepSeconds()
+	return (PugLogsDB.liveKeepDays or 1) * DAY
+end
+
+-- Adds a paste to the saved results of its dungeon and drops results older than the
+-- app's "Keep lookups for" setting.
+function ns.RememberResults(data)
+	PugLogsDB.liveKeepDays = data.keepDays or PugLogsDB.liveKeepDays or 1
+	local saved = PugLogsDB.liveSaved or {}
+	PugLogsDB.liveSaved = saved
+	local bucket = saved[data.encounterID] or {}
+	saved[data.encounterID] = bucket
+	for who, entry in pairs(data.players) do
+		entry.lookedUpAt = entry.lookedUpAt or data.at -- older apps don't send the date
+		entry.raid = data.encounterID < 0 or nil -- raid results (see RaidText)
+		bucket[who] = entry
+	end
+	local oldest = time() - KeepSeconds()
+	for _, players in pairs(saved) do
+		for who, entry in pairs(players) do
+			if (entry.lookedUpAt or 0) < oldest then
+				players[who] = nil
+			end
+		end
+	end
+end
+
+-- The saved run for a player ("Name-Realm") in the dungeon you're listing now (or the given
+-- one). Also used by the applicant panel (Panel.lua) and the filters.
+function ns.LiveEntry(fullName, dungeon)
+	if not ns.LiveEnabled() then
+		return nil
+	end
+	if not PugLogsDB.liveSaved and PugLogsDB.liveData then
+		ns.RememberResults(PugLogsDB.liveData) -- results pasted before saving existed
+	end
+	dungeon = dungeon or ns.GetListingTarget()
+	local bucket = dungeon and PugLogsDB.liveSaved and PugLogsDB.liveSaved[dungeon.wclEncounterID]
+	if not (bucket and fullName) then
 		return nil
 	end
 	local name, realm = ns.SplitNameRealm(fullName)
-	return data.players[(name .. "-" .. ns.GetRealmSlug(realm)):lower()]
+	local entry = bucket[(name .. "-" .. ns.GetRealmSlug(realm)):lower()]
+	if entry and (entry.lookedUpAt or 0) < time() - KeepSeconds() then
+		return nil -- older than the app's "Keep lookups for"
+	end
+	return entry
+end
+
+-- The damage per second of a player's run, whichever of the numbers it is (nil if only HPS).
+function ns.EntryDamage(entry)
+	if not entry or entry.raid then
+		return nil -- raid results are percentiles, not damage
+	elseif not entry.hps then
+		return entry.dps
+	elseif entry.also and not entry.also.hps then
+		return entry.also.amount
+	end
+end
+
+-- "Look up again" (right-click menu): forget the saved result and ask the app for a fresh one.
+function ns.LookUpAgain(fullName, dungeon)
+	dungeon = dungeon or ns.GetListingTarget() or ns.GetGroupDungeon()
+	if not (dungeon and ns.LiveEnabled()) then
+		ns.Print("Nothing to look up again: no listing or group dungeon (or live lookups are off).")
+		return
+	end
+	if ns.SendRefresh(fullName, dungeon) then
+		local bucket = PugLogsDB.liveSaved and PugLogsDB.liveSaved[dungeon.wclEncounterID]
+		if bucket then
+			local name, realm = ns.SplitNameRealm(fullName)
+			bucket[(name .. "-" .. ns.GetRealmSlug(realm)):lower()] = nil
+		end
+		if ns.OnPanelChanged then
+			ns.OnPanelChanged()
+		end
+		ns.Print(("Looking %s up again - Paste logs in a few seconds."):format(ns.SplitNameRealm(fullName)))
+	end
+end
+
+local function LookedUpText(at)
+	local days = at and math.floor((time() - at) / DAY)
+	if not days then
+		return nil
+	end
+	return "Looked up " .. (days <= 0 and "today" or days == 1 and "yesterday" or (days .. " days ago"))
 end
 
 local function AddApplicantLines(applicantID, memberIdx)
-	local dungeon = ns.GetListingDungeon()
+	local dungeon = ns.GetListingTarget()
 	if not dungeon then
 		return
 	end
 	local fullName = Clean(C_LFGList.GetApplicantMemberInfo(applicantID, memberIdx))
 	if not fullName then
 		return
+	end
+	if ns.AddSavedPlayerLines then
+		ns.AddSavedPlayerLines(GameTooltip, fullName)
 	end
 	local reason = ns.ApplicantFilterReason(applicantID, memberIdx)
 	if reason then
@@ -403,34 +498,109 @@ local function AddApplicantLines(applicantID, memberIdx)
 		GameTooltip:Show()
 		return
 	end
-	-- Only show results for the dungeon you're listing now (and only with live lookups on).
-	local data = ns.LiveEnabled() and PugLogsDB.liveData
-	if not data or dungeon.wclEncounterID ~= data.encounterID then
+	-- Only results for the dungeon you're listing now (and only with live lookups on).
+	if not ns.LiveEnabled() then
 		return
 	end
-	local name, realm = ns.SplitNameRealm(fullName)
-	local entry = data.players[(name .. "-" .. ns.GetRealmSlug(realm)):lower()]
+	local entry = ns.LiveEntry(fullName)
 
 	GameTooltip:AddLine(" ")
-	GameTooltip:AddLine("PugLogs - " .. data.dungeon, 0, 0.8, 1)
+	GameTooltip:AddLine("PugLogs - " .. dungeon.name, 0, 0.8, 1)
 	if not entry then
 		GameTooltip:AddLine("Not loaded yet - paste again from the PugLogs window.", 0.6, 0.6, 0.6)
 	elseif entry.hidden then
 		GameTooltip:AddLine("Logs hidden - they hid their rankings on Warcraft Logs.", 1, 0.7, 0.28, true)
 	elseif entry.none then
-		GameTooltip:AddLine("No logs in this dungeon this season.", 0.6, 0.6, 0.6)
+		GameTooltip:AddLine(entry.raid and "No kills at this difficulty yet." or "No logs in this dungeon this season.", 0.6, 0.6, 0.6)
+	elseif entry.raid then
+		-- Raid: bosses killed at this difficulty, and their average percentile (best and median).
+		local function Line(left, best, median, hps)
+			GameTooltip:AddDoubleLine(left, ("|cff%s%s %d|r (median %d)"):format(PercentColor(best), hps and "HPS" or "DPS",
+				math.floor(best or 0), math.floor(median or 0)), 1, 1, 1, 1, 1, 1)
+		end
+		Line(("%d/%d bosses killed"):format(entry.key or 0, entry.seconds or 0), entry.percent, entry.dps, entry.hps)
+		if entry.also and entry.also.percent then
+			Line(" ", entry.also.percent, entry.also.amount, entry.also.hps)
+		end
+		if entry.runSpec and entry.runSpec ~= "" then
+			GameTooltip:AddLine("mostly as " .. entry.runSpec, 0.6, 0.6, 0.6)
+		end
 	else
 		local timeText = entry.seconds and ("%d:%02d"):format(math.floor(entry.seconds / 60), entry.seconds % 60) or "-"
 		GameTooltip:AddDoubleLine(
 			("+%d  %s %s"):format(entry.key, timeText, entry.timed and "|cff4ec36atimed|r" or "|cffe0624fover|r"),
-			("|cff%s%s DPS (%d)|r"):format(PercentColor(entry.percent), FormatNumber(entry.dps), math.floor(entry.percent or 0)),
+			("|cff%s%s %s (%d)|r"):format(PercentColor(entry.percent), FormatNumber(entry.dps),
+				entry.hps and "HPS" or "DPS", math.floor(entry.percent or 0)),
 			1, 1, 1, 1, 1, 1)
+		local also = entry.also
+		if also and also.amount then
+			GameTooltip:AddDoubleLine(" ", ("|cff%s%s %s (%d)|r"):format(PercentColor(also.percent),
+				FormatNumber(also.amount), also.hps and "HPS" or "DPS", math.floor(also.percent or 0)), 1, 1, 1, 1, 1, 1)
+		end
 		AddSpecLine(entry, applicantID, memberIdx)
 		if entry.reason and entry.reason ~= "" then
 			GameTooltip:AddLine(entry.reason, 0.6, 0.6, 0.6)
 		end
 	end
+	if entry and LookedUpText(entry.lookedUpAt) then
+		GameTooltip:AddLine(LookedUpText(entry.lookedUpAt), 0.5, 0.5, 0.5)
+	end
 	GameTooltip:Show()
+end
+
+-- Players in your group: their run in the mouse-over window (from the same pasted results).
+-- Only lines are added; nothing of Blizzard's is changed. Names WoW keeps secret (e.g. in
+-- combat) are skipped.
+local function AddUnitLines(tooltip)
+	if tooltip ~= GameTooltip or not ns.GroupLookupsActive() then
+		return
+	end
+	local _, unit = tooltip:GetUnit()
+	unit = Clean(unit)
+	if not unit or not Clean(UnitIsPlayer(unit)) or Clean(UnitIsUnit(unit, "player"))
+		or not Clean(UnitInParty(unit)) then
+		return
+	end
+	local name, realm = UnitName(unit)
+	name, realm = Clean(name), Clean(realm)
+	local dungeon = ns.GetGroupDungeon()
+	if not (name and dungeon) then
+		return
+	end
+	local entry = ns.LiveEntry((realm and realm ~= "") and (name .. "-" .. realm) or name, dungeon)
+	tooltip:AddLine(" ")
+	tooltip:AddLine("PugLogs - " .. dungeon.name, 0, 0.8, 1)
+	if not entry then
+		tooltip:AddLine("Not loaded yet - Paste logs (or /pl paste) after the PugLogs app looked them up.", 0.6, 0.6, 0.6, true)
+	elseif entry.hidden then
+		tooltip:AddLine("Logs hidden - they hid their rankings on Warcraft Logs.", 1, 0.7, 0.28, true)
+	elseif entry.none then
+		tooltip:AddLine("No logs in this dungeon this season.", 0.6, 0.6, 0.6)
+	else
+		local timeText = entry.seconds and ("%d:%02d"):format(math.floor(entry.seconds / 60), entry.seconds % 60) or "-"
+		tooltip:AddDoubleLine(
+			("+%d  %s %s"):format(entry.key, timeText, entry.timed and "|cff4ec36atimed|r" or "|cffe0624fover|r"),
+			("|cff%s%s %s (%d)|r"):format(PercentColor(entry.percent), FormatNumber(entry.dps),
+				entry.hps and "HPS" or "DPS", math.floor(entry.percent or 0)),
+			1, 1, 1, 1, 1, 1)
+		local also = entry.also
+		if also and also.amount then
+			tooltip:AddDoubleLine(" ", ("|cff%s%s %s (%d)|r"):format(PercentColor(also.percent),
+				FormatNumber(also.amount), also.hps and "HPS" or "DPS", math.floor(also.percent or 0)), 1, 1, 1, 1, 1, 1)
+		end
+		if entry.runSpec and entry.runSpec ~= "" then
+			tooltip:AddLine("as " .. entry.runSpec .. (entry.reason and entry.reason ~= "" and (" - " .. entry.reason) or ""), 0.6, 0.6, 0.6)
+		end
+	end
+	if entry and LookedUpText(entry.lookedUpAt) then
+		tooltip:AddLine(LookedUpText(entry.lookedUpAt), 0.5, 0.5, 0.5)
+	end
+end
+
+if TooltipDataProcessor and Enum and Enum.TooltipDataType then
+	TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, function(tooltip)
+		pcall(AddUnitLines, tooltip) -- a problem here must never break the mouse-over window
+	end)
 end
 
 -- Shared with the applicant panel (Panel.lua).

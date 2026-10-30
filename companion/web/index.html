@@ -12,7 +12,7 @@
     --apple-red: #FF383C; --apple-orange: #FF8D28; --apple-green: #34C759; --apple-blue: #0088FF;
     --canvas: #F5F5F7; --surface: #FFFFFF; --label: #1D1D1F;
     --secondary: rgb(0 0 0 / 0.60); --footnote: rgb(0 0 0 / 0.55); --disabled: rgb(0 0 0 / 0.30);
-    --hairline: rgb(0 0 0 / 0.06); --ring: rgb(0 0 0 / 0.12);
+    --hairline: rgb(0 0 0 / 0.06); --ring: rgb(0 0 0 / 0.12); --dot-ring: rgb(0 0 0 / 0.45); --name-outline: rgb(0 0 0 / 0.40);
     --fill-quiet: rgb(0 0 0 / 0.05); --fill-quiet-hover: rgb(0 0 0 / 0.08); --fill-quiet-press: rgb(0 0 0 / 0.12);
     --field: rgb(0 0 0 / 0.04); --field-edge: rgb(0 0 0 / 0.38);
     --group-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
@@ -25,7 +25,7 @@
       --apple-red: #FF4245; --apple-orange: #FF9230; --apple-green: #30D158; --apple-blue: #0091FF;
       --canvas: #08080A; --surface: rgb(255 255 255 / 0.055); --label: #FFFFFF;
       --secondary: rgb(255 255 255 / 0.60); --footnote: rgb(255 255 255 / 0.55); --disabled: rgb(255 255 255 / 0.30);
-      --hairline: rgb(255 255 255 / 0.07); --ring: rgb(255 255 255 / 0.16);
+      --hairline: rgb(255 255 255 / 0.07); --ring: rgb(255 255 255 / 0.16); --dot-ring: rgb(255 255 255 / 0.16); --name-outline: transparent;
       --fill-quiet: rgb(255 255 255 / 0.09); --fill-quiet-hover: rgb(255 255 255 / 0.13); --fill-quiet-press: rgb(255 255 255 / 0.18);
       --field: rgb(255 255 255 / 0.07); --field-edge: rgb(255 255 255 / 0.40);
       --group-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08);
@@ -64,6 +64,10 @@
   header h1 { margin: 0; font-size: 0.8125rem; font-weight: 600; color: var(--secondary); flex-basis: 100%; }
   #listing { font-size: 1.375rem; line-height: 1.2; font-weight: 600; letter-spacing: -0.02em; }
   #updated { color: var(--secondary); }
+  .conn { flex-basis: 100%; display: flex; align-items: center; gap: 6px; color: var(--secondary); }
+  .conn .dot.ok { background: var(--apple-green); } .conn .dot.warn { background: var(--apple-orange); }
+  .conn .dot.bad { background: var(--apple-red); } .conn .dot.wait { background: var(--secondary); }
+  .conn code { overflow-wrap: anywhere; }
   #rate { display: inline-flex; align-items: center; gap: 8px; color: var(--secondary); white-space: nowrap; font-variant-numeric: tabular-nums; margin-inline-start: auto; }
   .meter { width: 72px; height: 4px; background: var(--fill-quiet-press); border-radius: 999px; overflow: hidden; }
   .meter > div { height: 100%; background: var(--apple-green); border-radius: inherit; transition: width .3s ease; }
@@ -106,15 +110,27 @@
   .app { background: var(--surface); border-radius: 18px; box-shadow: var(--group-shadow); overflow: hidden; }
   .member { display: grid; grid-template-columns: 10px minmax(0, 1fr); column-gap: 12px; padding: 12px 18px; position: relative; }
   .member + .member::after { content: ""; position: absolute; inset-block-start: 0; inset-inline: 40px 0; height: 1px; background: var(--hairline); }
-  .cdot { width: 10px; height: 10px; border-radius: 50%; margin-block-start: 5px; background: var(--c); box-shadow: inset 0 0 0 1px var(--ring); }
+  .cdot { width: 10px; height: 10px; border-radius: 50%; margin-block-start: 5px; background: var(--c); box-shadow: inset 0 0 0 1px var(--dot-ring); }
   .who { display: flex; flex-wrap: wrap; gap: 0 10px; align-items: baseline; }
   .name { font-size: 0.9375rem; font-weight: 600; color: var(--label); }
+  .names .member .cdot { display: none; }
+  .names .member { grid-template-columns: minmax(0, 1fr); padding-inline-start: 20px; }
+  .names .member + .member::after { inset-inline-start: 20px; }
+  .names .name { color: var(--c); paint-order: stroke fill; -webkit-text-stroke: 1px var(--name-outline); }
+  .specIcon { width: 18px; height: 18px; border-radius: 5px; vertical-align: -4px; box-shadow: 0 0 0 1px var(--dot-ring); }
+  .who .specIcon { margin-inline-end: -4px; }
+  .who .refresh { margin-inline-start: auto; font-size: 0.75rem; min-height: 26px; }
+  .member:not(:hover) .refresh:not(:focus-visible) { opacity: 0; }
+  @media (hover: none) { .member .refresh { opacity: 1; } }
+  .markTag { display: inline-flex; align-items: center; gap: 5px; font-size: 0.75rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--fill-quiet); }
+  .markTag.good .dot { background: var(--apple-green); } .markTag.okay .dot { background: var(--apple-orange); }
+  .markTag.avoid .dot { background: var(--apple-red); }
   .groupTag { font-size: 0.75rem; font-weight: 500; color: var(--secondary); background: var(--fill-quiet); padding: 1px 8px; border-radius: 999px; }
   .run { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin-block-start: 6px; font-variant-numeric: tabular-nums; }
   .run .key { font-weight: 600; font-size: 0.9375rem; }
   .stat { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
   .stat b { font-weight: 600; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--secondary); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--secondary); box-shadow: inset 0 0 0 1px var(--dot-ring); }
   .dot.timed { background: var(--apple-green); } .dot.over { background: var(--apple-red); }
   .status { color: var(--secondary); margin-block-start: 4px; }
   .status.loading::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-inline-end: 8px; vertical-align: -1px;
@@ -129,12 +145,13 @@
   /* Warcraft Logs percentile colours (game content) */
   .p100 { --pc: #E5CC80; } .p99 { --pc: #E268A8; } .p95 { --pc: #FF8000; } .p75 { --pc: #A335EE; }
   .p50 { --pc: #0070FF; } .p25 { --pc: #1EFF00; } .p0 { --pc: #9D9D9D; }
-  .parse .dot { background: var(--pc, var(--secondary)); box-shadow: inset 0 0 0 1px var(--ring); }
+  .parse .dot { background: var(--pc, var(--secondary)); }
   .error { color: var(--label); }
   .error::before, .timed::before { display: inline-block; width: 1.2em; font-weight: 700; }
   .error::before { content: "!"; color: var(--apple-red); }
   .timed::before { content: "\2713"; color: var(--apple-green); }
   .dot.timed::before, .dot.over::before { content: none; }
+  .listTitle { margin: 8px 4px -4px; }
   #empty { color: var(--secondary); text-align: center; padding: 40px 0; font-size: 0.9375rem; }
 
   /* Notices: a quiet row with the colour on the icon only */
@@ -143,9 +160,12 @@
   #update .note-icon { color: var(--apple-blue); }
   #errorBar .note-icon { color: var(--apple-red); }
 
-  /* Filters */
-  #filters { padding: 16px 20px; display: grid; gap: 12px; }
-  #filters .row { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; }
+  /* Filters and settings */
+  #filters, #settings { padding: 16px 20px; display: grid; gap: 12px; }
+  #filters .row, #settings .row { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; }
+  #settings .rowLabel { min-width: 112px; }
+  #settings .note { margin: -6px 0 0; font-size: 0.75rem; color: var(--footnote); }
+  #keepDays { width: 56px; text-align: center; }
   .field { display: inline-flex; align-items: center; gap: 8px; color: var(--label); }
   .input { min-height: 32px; padding: 0 10px; border: 1px solid var(--field-edge); border-radius: 8px; background: var(--field); color: var(--label); font: inherit; }
   .input:focus { outline: 2px solid var(--focus); outline-offset: 0; border-color: transparent; }
@@ -171,6 +191,7 @@
   #messages { color: var(--footnote); font-size: 0.75rem; display: grid; gap: 2px; margin-block-start: 8px; }
   #version { color: var(--footnote); font-size: 0.75rem; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
   #version .btn { font-size: 0.75rem; }
+
   #reportStatus { color: var(--secondary); }
   #sendPanel { padding: 16px 20px; display: grid; gap: 12px; max-width: 640px; }
   #sendPanel p { margin: 0; }
@@ -195,6 +216,7 @@
     <h1>PugLogs</h1>
     <span id="listing" role="status">Waiting for the addon...</span>
     <span id="updated"></span>
+    <span id="conn" class="conn" role="status" hidden></span>
     <span id="rate" hidden title="Warcraft Logs API points used this hour, and when the hour resets">
       API <span id="rateText"></span> <span class="meter" id="meter" aria-hidden="true"><div></div></span> <span id="resetIn"></span>
     </span>
@@ -208,6 +230,7 @@
       <option value="applied">Applied order</option><option value="role">Role</option>
       <option value="rating">M+ rating</option><option value="log">Log</option></select></label>
     <button class="btn" id="filtersBtn" type="button" aria-controls="filters" title="Hide applicants in this window (they aren't looked up)">Filters</button>
+    <button class="btn" id="settingsBtn" type="button" aria-controls="settings">Settings</button>
     <label class="toggle" id="onTopLabel" hidden title="Keep the PugLogs window above WoW (play WoW in windowed mode)"><input type="checkbox" id="onTop"> Keep on top</label>
   </div>
 </header>
@@ -221,6 +244,34 @@
     <label class="toggle" title="Errors are sent to the developer as soon as they happen (just the error, no log)"><input type="checkbox" id="autoReport"> Send errors automatically from now on</label>
     <span id="errorBarStatus" class="meta" role="status"></span>
   </div>
+  <section id="settings" class="group" hidden>
+    <div>
+      <h3 class="section-title">Settings</h3>
+    </div>
+    <div class="row">
+      <label class="field">Keep lookups for
+        <input type="text" class="input" id="keepDays" inputmode="numeric" aria-describedby="keepNote"> days</label>
+      <span class="meta" id="keepNote">Players looked up within this time aren't looked up again, and WoW keeps their results as long.</span>
+    </div>
+    <div class="row" id="metricRows">
+      <span class="meta rowLabel">Look up DPS for</span>
+      <label class="toggle"><input type="checkbox" data-metric="dps" data-mrole="TANK"> Tanks</label>
+      <label class="toggle"><input type="checkbox" data-metric="dps" data-mrole="HEALER"> Healers</label>
+      <label class="toggle"><input type="checkbox" data-metric="dps" data-mrole="DAMAGER"> DPS</label>
+    </div>
+    <div class="row">
+      <span class="meta rowLabel">Look up HPS for</span>
+      <label class="toggle"><input type="checkbox" data-metric="hps" data-mrole="TANK"> Tanks</label>
+      <label class="toggle"><input type="checkbox" data-metric="hps" data-mrole="HEALER"> Healers</label>
+      <label class="toggle"><input type="checkbox" data-metric="hps" data-mrole="DAMAGER"> DPS</label>
+    </div>
+    <p class="meta note">Each number costs about 1.3 Warcraft Logs API points per player. A role needs at least one of the two.</p>
+    <div class="row">
+      <span class="meta rowLabel">Show</span>
+      <label class="toggle" title="Show class colours on the names instead of as dots"><input type="checkbox" id="nameColors"> Coloured names</label>
+      <label class="toggle" title="Show each player's spec as its icon instead of its name"><input type="checkbox" id="specIcons"> Spec icons</label>
+    </div>
+  </section>
   <section id="filters" class="group" hidden>
     <div>
       <h3 class="section-title">Window filters</h3>
@@ -278,6 +329,7 @@
   <div id="messages" aria-live="polite"></div>
   <div id="version"><span id="versionText"></span>
     <span id="errorCount" class="error" hidden></span>
+    <button class="btn btn-plain" id="keyBtn" type="button" title="Enter a different Warcraft Logs API client">Change API Key…</button>
     <button class="btn btn-plain" id="reportBtn" type="button" title="Copy a report of recent errors and the log, to paste into a bug report">Copy Error Report</button>
     <button class="btn btn-plain" id="githubBtn" type="button" title="Open a new bug report on GitHub (needs a GitHub account); the error report is copied for you to paste">Report on GitHub</button>
     <button class="btn btn-plain" id="sendBtn" type="button" hidden title="Send the error report to the PugLogs developer">Send to Developer…</button>
@@ -300,6 +352,7 @@ const CLASS_COLORS = {
   SHAMAN: "#0070DD", WARLOCK: "#8788EE", WARRIOR: "#C69B6D",
 };
 const ROLE = { TANK: "Tank", HEALER: "Healer", DAMAGER: "DPS" };
+const MARKS = { good: "Good", okay: "Okay", avoid: "Avoid" };
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const num = n => n == null ? "-" : n >= 1e9 ? (n/1e9).toFixed(2)+"B" : n >= 1e6 ? (n/1e6).toFixed(2)+"M" : n >= 1e3 ? (n/1e3).toFixed(0)+"K" : String(Math.round(n));
@@ -307,15 +360,44 @@ const time = ms => ms == null ? "-" : `${Math.floor(ms/60000)}:${String(Math.flo
 const ago = ms => { const d = Math.floor((Date.now()-ms)/86400000); return d <= 0 ? "today" : d === 1 ? "1 day ago" : `${d} days ago`; };
 const pclass = p => p == null ? "" : p >= 100 ? "p100" : p >= 99 ? "p99" : p >= 95 ? "p95" : p >= 75 ? "p75" : p >= 50 ? "p50" : p >= 25 ? "p25" : "p0";
 
+// Spec icons from Warcraft Logs ("Hunter-BeastMastery.jpg"); the spec name shows if one can't load.
+let showSpecIcons = true;
+let lastListing = { raid: false };
+const WCL_CLASS = { DEATHKNIGHT: "DeathKnight", DEMONHUNTER: "DemonHunter" };
+function specIcon(classFile, spec) {
+  if (!classFile || !spec) return esc(spec || "?");
+  const cls = WCL_CLASS[classFile] || classFile[0] + classFile.slice(1).toLowerCase();
+  return `<img class="specIcon" src="https://assets.rpglogs.com/img/warcraft/icons/${cls}-${esc(spec.replace(/ /g, ""))}.jpg"`
+    + ` alt="${esc(spec)}" title="${esc(spec)}" onerror="this.replaceWith(this.alt)">`;
+}
+const specText = (m, spec) => showSpecIcons ? specIcon(m.class, spec) : esc(spec || "?");
+
 const icon = id => `<svg class="note-icon" aria-hidden="true"><use href="#${id}"/></svg>`;
+
+const lookedUp = t => { const d = Math.floor((Date.now() / 1000 - t) / 86400); return d <= 0 ? "today" : d === 1 ? "yesterday" : `${d} days ago`; };
+
+function raidTable(m) {
+  const r = m.featured, unit = x => x === "hps" ? "HPS" : "DPS";
+  const avg = (metric, best, median) => `<span class="stat parse ${pclass(best)}"><span class="dot" aria-hidden="true"></span>${unit(metric)} average <b>${Math.floor(best ?? 0)}</b> best · ${Math.floor(median ?? 0)} median</span>`;
+  return `<div class="run">
+      <a class="key" href="${esc(r.url)}" target="_blank" rel="noopener" title="Open their raid page">${r.kills}/${r.bosses}</a>
+      <span class="stat">bosses killed</span>
+      ${avg(r.metric, r.best, r.median)}
+      ${(r.also || []).map(a => avg(a.metric, a.percent, a.amount)).join("")}
+      <span class="stat">${specText(m, r.spec)}</span>
+    </div>
+    <div class="reason">${m.lookedUpAt ? `looked up ${lookedUp(m.lookedUpAt)}` : ""}</div>`;
+}
 
 function runTable(m) {
   const r = m.featured;
+  if (r.raid) return raidTable(m);
   return `<div class="run">
-      <a class="key" href="${esc(r.url)}" target="_blank" rel="noopener" title="Open this log (Damage Done)">+${esc(r.key ?? "?")}</a>
+      <a class="key" href="${esc(r.url)}" target="_blank" rel="noopener" title="Open this log (${r.metric === "hps" ? "Healing" : "Damage Done"})">+${esc(r.key ?? "?")}</a>
       <span class="stat"><span class="dot ${r.timed ? "timed" : "over"}" aria-hidden="true"></span>${time(r.duration)} ${r.timed ? "timed" : "over time"}</span>
-      <span class="stat parse ${pclass(r.percent)}"><span class="dot" aria-hidden="true"></span><b>${num(r.dps)}</b> DPS${r.percent != null ? ` · <b>${Math.floor(r.percent)}</b> parse` : ""}</span>
-      <span class="stat ${m.specMismatch === 2 ? "specRole" : m.specMismatch === 1 ? "specOther" : ""}">${esc(r.spec || "?")}</span>
+      <span class="stat parse ${pclass(r.percent)}"><span class="dot" aria-hidden="true"></span><b>${num(r.dps)}</b> ${r.metric === "hps" ? "HPS" : "DPS"}${r.percent != null ? ` · <b>${Math.floor(r.percent)}</b> parse` : ""}</span>
+      ${(r.also || []).map(a => `<span class="stat parse ${pclass(a.percent)}"><span class="dot" aria-hidden="true"></span><b>${num(a.amount)}</b> ${a.metric === "hps" ? "HPS" : "DPS"}${a.percent != null ? ` · <b>${Math.floor(a.percent)}</b> parse` : ""}</span>`).join("")}
+      <span class="stat ${m.specMismatch === 2 ? "specRole" : m.specMismatch === 1 ? "specOther" : ""}">${specText(m, r.spec)}</span>
       <span class="meta">${r.date ? ago(r.date) : ""}</span>
     </div>
     ${m.specMismatch === 2
@@ -323,26 +405,29 @@ function runTable(m) {
       : m.specMismatch === 1
       ? `<div class="specWarn specOther">${icon("i-warn")}<span>This run was as ${esc(r.spec)} - they applied as ${esc(m.spec)}.</span></div>`
       : ""}
-    <div class="reason">${esc(m.reason)}</div>`;
+    <div class="reason">${esc(m.reason)}${m.lookedUpAt ? ` · looked up ${lookedUp(m.lookedUpAt)}` : ""}</div>`;
 }
 
 function memberHtml(m, i, all) {
   const color = CLASS_COLORS[m.class] || "var(--secondary)";
   let body;
   if (m.status === "done") body = runTable(m);
-  else if (m.status === "nodata") body = `<div class="status">No logs in this dungeon this season.</div>`;
+  else if (m.status === "nodata") body = `<div class="status">${lastListing.raid ? "No kills at this difficulty yet." : "No logs in this dungeon this season."}</div>`;
   else if (m.status === "hidden") body = `<div class="status">Logs hidden - this player hid their rankings on Warcraft Logs.</div>`;
   else if (m.status === "error") body = `<div class="status error">${esc(m.error)}</div>`;
   else if (m.status === "waiting") body = `<div class="status">Hourly API limit reached - looks up automatically at ${new Date(m.retryAt*1000).toLocaleTimeString()}</div>`;
   else body = `<div class="status loading">${m.status === "loading" ? "Looking up..." : "Waiting..."}</div>`;
   const group = i === 0 && all.length > 1 ? `<span class="groupTag">Group of ${all.length}</span>` : "";
+  const mark = MARKS[m.mark] ? `<span class="markTag ${m.mark}" title="Your mark in My players (WoW)"><span class="dot" aria-hidden="true"></span>${MARKS[m.mark]}</span>` : "";
+  const again = ["done", "nodata", "hidden", "error"].includes(m.status)
+    ? `<button class="btn btn-plain refresh" type="button" data-rkey="${esc(m.resultKey)}" title="Ask Warcraft Logs again, even though this lookup is saved (about 1.3 API points)">Look Up Again</button>` : "";
   return `<div class="member">
     <span class="cdot" style="--c:${color}" aria-hidden="true"></span>
     <div>
       <div class="who">
-        <a class="name" href="${esc(m.profileUrl)}" target="_blank" rel="noopener">${esc(m.name)}</a>
-        <span class="meta">${esc(m.realm)} · ${ROLE[m.role] || "?"}${m.spec ? ` (${esc(m.spec)})` : ""} · ${m.itemLevel || "?"} ilvl · ${m.score || 0} rating</span>
-        ${group}
+        ${showSpecIcons && m.spec ? specIcon(m.class, m.spec) : ""}<a class="name" style="--c:${color}" href="${esc(m.profileUrl)}" target="_blank" rel="noopener">${esc(m.name)}</a>
+        <span class="meta">${esc(m.realm)} · ${ROLE[m.role] || "?"}${m.spec && !showSpecIcons ? ` (${esc(m.spec)})` : ""} · ${m.itemLevel || "?"} ilvl · ${m.score || 0} rating</span>
+        ${mark}${group}${again}
       </div>${body}
     </div></div>`;
 }
@@ -383,6 +468,24 @@ function tickReset() {
 }
 setInterval(tickReset, 1000);
 
+// Connection line: whether codes from WoW are arriving, and what to try when they aren't.
+function agoShort(t) {
+  const s = Math.max(0, Math.round(Date.now() / 1000 - t));
+  return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.floor(s / 60)} min ago` : `${Math.floor(s / 3600)} h ago`;
+}
+function showConnection(c) {
+  const el = document.getElementById("conn");
+  el.hidden = !c;
+  if (!c) return;
+  const folder = `<code>${esc(c.folder)}</code>`;
+  const [kind, text] =
+    !c.folderExists ? ["bad", `WoW's Screenshots folder isn't there yet: ${folder}. WoW creates it with its first screenshot - in WoW, type <b>/pl test</b>.`]
+    : c.lastCode ? ["ok", `Connected to WoW · last update ${agoShort(c.lastCode)}`]
+    : c.noCodeShots ? ["warn", `${c.noCodeShots} new screenshot${c.noCodeShots > 1 ? "s" : ""} arrived, but none had a PugLogs code. In WoW, type <b>/pl test</b>; if that fails too, <b>/pl qr classic</b>.`]
+    : ["wait", `Nothing from WoW yet. Watching ${folder} - in WoW, list a key or type <b>/pl test</b>.`];
+  el.innerHTML = `<span class="dot ${kind}" aria-hidden="true"></span><span>${text}</span>`;
+}
+
 async function refresh() {
   let s;
   try { s = await (await fetch("/api/state", {cache: "no-store"})).json(); }
@@ -397,6 +500,9 @@ async function refresh() {
     up.innerHTML = `<span class="msg">${icon("i-down")}<span>A new version of PugLogs (${esc(u.version)}) is available.</span></span> ${action}`
       + (u.error ? ` <span class="error">${esc(u.error)}</span>` : "");
   }
+  showConnection(s.connection);
+  const keep = document.getElementById("keepDays");
+  if (document.activeElement !== keep) keep.value = s.keepDays || 1;
   document.getElementById("versionText").textContent = s.version ? `PugLogs ${s.version}` : "";
   const errorCount = document.getElementById("errorCount");
   errorCount.hidden = !s.errorCount;
@@ -432,6 +538,7 @@ async function refresh() {
     return;
   }
   const l = s.listing;
+  lastListing = { raid: !!(l && l.encounterId < 0) };
   document.getElementById("listing").textContent = l
     ? (l.dungeon ? `${l.dungeon}${l.key ? " +" + l.key : ""}${l.filtered ? ` · ${l.filtered} filtered out` : ""}${s.belowRating ? ` · ${s.belowRating} hidden by window filters` : ""}` : "No active listing")
     : "Waiting for the addon...";
@@ -439,14 +546,26 @@ async function refresh() {
   const r = s.rate || {};
   showRate(r);
   renderFilters(s);
+  showSpecIcons = s.specIcons !== false;
+  for (const box of document.querySelectorAll("[data-metric]"))
+    box.checked = ((s.metrics || {})[box.dataset.mrole] || []).includes(box.dataset.metric);
+  document.getElementById("specIcons").checked = showSpecIcons;
   const sel = document.getElementById("sortBy");
   if (document.activeElement !== sel) sel.value = s.sortBy || "applied";
-  document.getElementById("apps").innerHTML = sortApplications(s.applications, sel.value).map(a =>
+  // Players already in your group (negative IDs from the addon) get their own section on top.
+  const group = s.applications.filter(a => a.id < 0).flatMap(a => a.members);
+  const applicants = s.applications.filter(a => a.id >= 0);
+  document.getElementById("apps").innerHTML =
+    (group.length ? `<h3 class="section-title listTitle">Your group</h3><div class="app">${group.map(m => memberHtml(m, 0, [m])).join("")}</div>`
+      + (applicants.length ? `<h3 class="section-title listTitle">Applicants</h3>` : "") : "")
+    + sortApplications(applicants, sel.value).map(a =>
     `<div class="app">${a.members.map(memberHtml).join("")}</div>`).join("");
-  document.getElementById("empty").hidden = !(l && s.applications.length === 0);
+  document.getElementById("empty").hidden = !(l && applicants.length === 0 && group.length === 0);
   document.getElementById("autoCopy").checked = !!s.autoCopy;
   document.getElementById("onTopLabel").hidden = !s.inWindow;
   document.getElementById("onTop").checked = !!s.onTop;
+  document.getElementById("nameColors").checked = s.classColors === "name";
+  document.getElementById("apps").classList.toggle("names", s.classColors === "name");
   document.getElementById("copied").textContent = s.copiedAt ? `copied ${new Date(s.copiedAt*1000).toLocaleTimeString()}` : "";
   document.getElementById("messages").innerHTML = s.messages.map(m =>
     `<div>${new Date(m.at*1000).toLocaleTimeString()} ${esc(m.text)}</div>`).join("");
@@ -475,6 +594,26 @@ document.getElementById("setupForm").addEventListener("submit", async e => {
   msg.textContent = r.ok ? "Saved! PugLogs is ready - list a key in WoW." : r.error;
   msg.className = r.ok ? "timed" : "error";
   refresh();
+});
+document.getElementById("apps").addEventListener("click", async e => {
+  const button = e.target.closest(".refresh");
+  if (!button) return;
+  button.disabled = true;
+  button.textContent = "Looking Up…";
+  await fetch("/api/refresh", { method: "POST", body: JSON.stringify({ resultKey: button.dataset.rkey }) });
+  refresh();
+});
+document.getElementById("keepDays").addEventListener("change", async e => {
+  const days = Math.min(365, Math.max(1, parseInt(e.target.value, 10) || 1));
+  e.target.value = days;
+  await fetch("/api/keepdays", { method: "POST", body: JSON.stringify({ days }) });
+  refresh();
+});
+document.getElementById("keepDays").addEventListener("keydown", e => { if (e.key === "Enter") e.target.blur(); });
+document.getElementById("keyBtn").addEventListener("click", async () => {
+  await fetch("/api/setup/open", { method: "POST", body: "{}" });
+  refresh();
+  window.scrollTo(0, 0);
 });
 document.getElementById("setupClose").addEventListener("click", async () => {
   await fetch("/api/setup/close", { method: "POST", body: "{}" });
@@ -513,12 +652,7 @@ function renderFilters(s) {
       + "<span></span>".repeat(4 - c.specs.length)).join("");
   }
   for (const box of grid.querySelectorAll("[data-class]")) box.checked = !filters.excludedClasses.includes(box.dataset.class);
-  for (const box of grid.querySelectorAll("[data-spec]")) {
-    box.checked = !filters.excludedSpecs.includes(box.dataset.spec);
-    const classOn = !filters.excludedClasses.includes(box.dataset.spec.split(":")[0]);
-    box.disabled = !classOn;
-    box.parentElement.classList.toggle("off", !classOn);
-  }
+  for (const box of grid.querySelectorAll("[data-spec]")) box.checked = !filters.excludedSpecs.includes(box.dataset.spec);
 }
 async function saveFilters() {
   const panel = document.getElementById("filters");
@@ -537,7 +671,17 @@ document.getElementById("filtersBtn").addEventListener("click", () => {
   const panel = document.getElementById("filters");
   panel.hidden = !panel.hidden;
 });
-document.getElementById("filters").addEventListener("change", saveFilters);
+document.getElementById("filters").addEventListener("change", e => {
+  const t = e.target, grid = document.getElementById("fClasses");
+  if (t.dataset.class) {
+    for (const box of grid.querySelectorAll(`[data-spec^="${t.dataset.class}:"]`)) box.checked = t.checked;
+  } else if (t.dataset.spec) {
+    const cls = t.dataset.spec.split(":")[0];
+    grid.querySelector(`[data-class="${cls}"]`).checked =
+      [...grid.querySelectorAll(`[data-spec^="${cls}:"]`)].some(b => b.checked);
+  }
+  saveFilters();
+});
 for (const id of ["fIlvl", "fRating"]) document.getElementById(id).addEventListener("keydown", e => { if (e.key === "Enter") e.target.blur(); });
 function setAllClasses(on) {
   for (const box of document.querySelectorAll("#fClasses input")) box.checked = on;
@@ -547,6 +691,25 @@ document.getElementById("fAll").addEventListener("click", () => setAllClasses(tr
 document.getElementById("fNone").addEventListener("click", () => setAllClasses(false));
 document.getElementById("onTop").addEventListener("change", async e => {
   await fetch("/api/ontop", { method: "POST", body: JSON.stringify({ on: e.target.checked }) });
+  refresh();
+});
+document.getElementById("nameColors").addEventListener("change", async e => {
+  document.getElementById("apps").classList.toggle("names", e.target.checked);
+  await fetch("/api/classcolors", { method: "POST", body: JSON.stringify({ value: e.target.checked ? "name" : "dot" }) });
+  refresh();
+});
+document.getElementById("settingsBtn").addEventListener("click", () => {
+  const panel = document.getElementById("settings");
+  panel.hidden = !panel.hidden;
+});
+for (const box of document.querySelectorAll("[data-metric]")) box.addEventListener("change", async () => {
+  const metrics = { TANK: [], HEALER: [], DAMAGER: [] };
+  for (const b of document.querySelectorAll("[data-metric]:checked")) metrics[b.dataset.mrole].push(b.dataset.metric);
+  await fetch("/api/metrics", { method: "POST", body: JSON.stringify({ metrics }) });
+  refresh();
+});
+document.getElementById("specIcons").addEventListener("change", async e => {
+  await fetch("/api/specicons", { method: "POST", body: JSON.stringify({ on: e.target.checked }) });
   refresh();
 });
 document.getElementById("autoCopy").addEventListener("change", async e => {

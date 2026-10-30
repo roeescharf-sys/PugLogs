@@ -67,6 +67,9 @@ class Inbox:
         self.log = log
         self._seen = {}   # path -> modification time when handled
         self._attempts = {}  # path -> failed reads (WoW may still be writing the file)
+        # For the window's connection line:
+        self.last_code = None        # when a PugLogs code was last read
+        self.no_code_shots = 0       # new screenshots without a PugLogs code since then
 
     def start(self):
         threading.Thread(target=self._run, daemon=True).start()
@@ -134,7 +137,11 @@ class Inbox:
             return
         self._attempts.pop(path, None)
         if page is None:
+            if use:
+                self.no_code_shots += 1
             return
+        if use:
+            self.last_code, self.no_code_shots = time.time(), 0
         try:
             os.remove(path)
         except OSError:

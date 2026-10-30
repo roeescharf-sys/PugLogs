@@ -59,7 +59,10 @@ def load_filters(values=None):
 
 
 def filter_reason(member, f):
-    """Why the window's filters hide this applicant, or None."""
+    """Why the window's filters hide this applicant, or None. Players already in your group
+    (negative numbers from the addon) are never hidden."""
+    if member.application_id < 0:
+        return None
     if f["minItemLevel"] and member.item_level < f["minItemLevel"]:
         return "item level"
     if f["minRating"] and member.score < f["minRating"]:
@@ -83,7 +86,7 @@ class State:
         self.messages = collections.deque(maxlen=8)
         self.rate = {}
         self.setup_needed = False    # no API key yet: the window shows the setup page
-        self.setup_requested = False # /pl wcl in WoW: show the page to change the key
+        self.setup_requested = False # Change API Key button: show the page to change the key
         self.wow_missing = False     # WoW folder not found: the window asks for it
         self.update = None           # {"version", "url"} when a newer PugLogs is released
         self.filters = load_filters()  # the window's own filters (see filter_reason)
@@ -119,14 +122,13 @@ class State:
                 lst = self.listing or {}
                 rkey = result_key(m, lst.get("encounterId"), lst.get("key"))
                 result = self.results.get(rkey) or {"status": "pending"}
-                if filter_reason(m, self.filters):
+                if (lst.get("encounterId") or 0) >= 0 and filter_reason(m, self.filters):
                     below += 1
                     continue
                 applications.setdefault(m.application_id, []).append({
                     "name": m.name, "realm": m.realm_slug, "class": m.class_file, "spec": m.spec,
-                    "role": m.role, "itemLevel": m.item_level, "score": m.score, "resultKey": rkey,
-                    "profileUrl": lookup.character_url(lst.get("region", "eu"), m.realm_slug, m.name,
-                                                       SEASON_ZONE_ID, lst.get("encounterId")),
+                    "role": m.role, "itemLevel": m.item_level, "score": m.score, "resultKey": rkey, "mark": m.mark,
+                    "profileUrl": profile_url(lst, m),
                     **result,
                     "specMismatch": lookup.spec_mismatch(m.spec, (result.get("featured") or {}).get("spec")),
                     "runRole": lookup.ROLE_NAMES[lookup.spec_role((result.get("featured") or {}).get("spec"))],
@@ -140,6 +142,10 @@ class State:
                 "specs": [{"class": c, "name": payload.CLASS_NAMES[c], "specs": names}
                           for c, names in payload.SPECS.items()],
                 "sortBy": self.sort_by,
+                "classColors": window.get_setting("classColors", "dot"),
+                "specIcons": bool(window.get_setting("specIcons", True)),
+                "keepDays": keep_days(),
+                "metrics": lookup.METRICS,
                 "belowRating": below,
                 "messages": list(self.messages),
                 "setupNeeded": self.setup_needed,
@@ -155,16 +161,42 @@ class State:
                 "onTop": window.is_on_top(),
                 "settingsFile": wcl.ENV_FILE,
                 "autoCopy": self.auto_copy,
+                "connection": connection_status(),
                 "copiedAt": self.copied_at,
             }
 
 
+def profile_url(listing, member):
+    """The player's Warcraft Logs page for the listed dungeon, or raid and difficulty."""
+    region, enc = listing.get("region", "eu"), listing.get("encounterId")
+    raid = lookup.raid_target(enc or 0)
+    if raid:
+        return lookup.character_url(region, member.realm_slug, member.name) + f"?zone={raid[0]}&difficulty={raid[1]}"
+    return lookup.character_url(region, member.realm_slug, member.name, SEASON_ZONE_ID, enc)
+
+
+def keep_days():
+    """How many days a lookup is kept before it's fetched again (the window's setting)."""
+    return int(window.get_setting("keepDays", 1))
+
+
+def connection_status():
+    """Whether codes from WoW are arriving, for the line at the top of the window."""
+    if _inbox is None:
+        return None
+    return {"folder": _screenshots, "folderExists": os.path.isdir(_screenshots),
+            "lastCode": _inbox.last_code, "noCodeShots": _inbox.no_code_shots}
+
+
 def result_key(member, encounter_id, key_level):
-    # The featured run depends on your key level and the role they applied as.
-    return f"{member.key}:{encounter_id}:{key_level}:{member.role}"
+    # The featured run depends on your key level, the role they applied as and the numbers
+    # wanted for that role (DPS/HPS).
+    return f"{member.key}:{encounter_id}:{key_level}:{member.role}:{'+'.join(lookup.metrics_for(member))}"
 
 
 state = State()
+lookup.set_keep_days(int(window.get_setting("keepDays", 1)))
+lookup.set_metrics(window.get_setting("metrics", lookup.METRICS))
 # (priority, order, job), processed in order.
 work = queue.PriorityQueue()
 _order = itertools.count()
@@ -176,11 +208,16 @@ def queue_job(priority, job):
 
 def on_page(page):
     if "S" in page.flags:
-        # /pl wcl in WoW: show the API key page.
+        # Older addons' /pl wcl: show the API key page.
         with state.lock:
             state.setup_requested = True
         window.bring_to_front()
         state.log("Showing the Warcraft Logs API key page")
+        return
+    if "F" in page.flags:
+        # "Look up again" in WoW's right-click menu: the players named in this code.
+        for m in page.members:
+            refresh_player(m.key)
         return
     if "R" in page.flags:
         with state.lock:
@@ -203,14 +240,14 @@ def on_page(page):
                          "filtered": page.filtered}
         state.members = members
         state.updated_at = time.time()
-        new = [m for m in members if result_key(m, page.encounter_id, page.key_level) not in state.results]
+        new = [m for m in members if needs_lookup(state.results.get(result_key(m, page.encounter_id, page.key_level)))]
     state.log(f"{len(members)} applicant(s) for {page.dungeon or 'no listing'}"
               + (f" +{page.key_level}" if page.key_level else "")
               + (f" ({page.filtered} filtered out)" if page.filtered else ""))
     for m in new:
         rkey = result_key(m, page.encounter_id, page.key_level)
         with state.lock:
-            if filter_reason(m, state.filters):
+            if page.encounter_id >= 0 and filter_reason(m, state.filters):  # (filters are for Mythic+)
                 state.results[rkey] = {"status": "skipped"}  # hidden, never looked up
                 continue
             state.results[rkey] = {"status": "pending"}
@@ -224,6 +261,35 @@ def on_page(page):
 
 
 PASTE_WAIT = 4  # seconds the paste box waits for new applicants' lookups
+RETRY_FAILED_AFTER = 60  # seconds before a failed lookup is tried again
+
+
+def needs_lookup(result):
+    """Players we haven't looked up yet - and anyone whose lookup failed (e.g. while Warcraft
+    Logs was down) over a minute ago, so they get a fresh try instead of keeping the error."""
+    if result is None:
+        return True
+    if result.get("lookedUpAt") and time.time() - result["lookedUpAt"] > lookup.PLAYER_TTL:
+        return True  # older than "Keep lookups for": fetch again
+    return result.get("status") == "error" and time.time() - result.get("at", 0) > RETRY_FAILED_AFTER
+
+
+def refresh_player(player_key):
+    """Looks a player up again even though their lookup is saved (the window's Refresh button
+    or "Look up again" in WoW). player_key is "Name-realm" or a result key."""
+    with state.lock:
+        lst = state.listing or {}
+        enc, key = lst.get("encounterId"), lst.get("key")
+        member = next((m for m in state.members
+                       if m.key.lower() == player_key.lower() or result_key(m, enc, key) == player_key), None)
+        if not member or not _lookup or enc is None:
+            return False
+        rkey = result_key(member, enc, key)
+        state.results[rkey] = {"status": "pending"}
+    _lookup.forget(member, lst.get("region", "eu"), enc)
+    queue_job(0, ("lookup", rkey, member, lst.get("region", "eu"), enc, key))
+    state.log(f"Looking {member.name} up again")
+    return True
 
 
 def answer_if_unanswered(batch):
@@ -333,6 +399,7 @@ def do_lookup(lk, rkey, member, region, encounter_id, key_level):
             result = {"status": "hidden"}
         else:
             result = {"status": "done", "playerName": member.name, **found}
+        result["lookedUpAt"] = lk.looked_up_at(member, region, encounter_id) or time.time()
     except (lookup.BudgetError, wcl.RateLimited) as e:
         # Out of API points (or briefly refused): wait, then look them up automatically.
         wait = 60 if isinstance(e, wcl.RateLimited) else (lk.estimated_rate().get("pointsResetIn") or 300) + 5
@@ -344,7 +411,7 @@ def do_lookup(lk, rkey, member, region, encounter_id, key_level):
         if not isinstance(e, wcl.WCLError):  # Warcraft Logs' own errors are expected; bugs aren't
             report.record(f"looking up {member.name}-{member.realm_slug} "
                           f"(dungeon {encounter_id}, key +{key_level})")
-        result = {"status": "error", "error": describe_error(e)}
+        result = {"status": "error", "error": describe_error(e), "at": time.time()}
     with state.lock:
         state.results[rkey] = result
 
@@ -458,6 +525,10 @@ class Handler(BaseHTTPRequestHandler):
                 ok, error = set_up_api_client(str(body.get("clientId", "")).strip(),
                                               str(body.get("secret", "")).strip())
                 reply = {"ok": ok, "error": error}
+            elif self.path == "/api/setup/open":
+                with state.lock:
+                    state.setup_requested = True
+                reply = {"ok": True}
             elif self.path == "/api/setup/close":
                 with state.lock:
                     state.setup_requested = False
@@ -503,6 +574,24 @@ class Handler(BaseHTTPRequestHandler):
                 with state.lock:
                     state.sort_by = value
                 reply = {"sortBy": value}
+            elif self.path == "/api/classcolors":
+                value = "name" if body.get("value") == "name" else "dot"
+                window.set_setting("classColors", value)
+                reply = {"classColors": value}
+            elif self.path == "/api/refresh":
+                reply = {"ok": refresh_player(str(body.get("resultKey", "")))}
+            elif self.path == "/api/keepdays":
+                days = min(365, max(1, int(body["days"])))
+                window.set_setting("keepDays", days)
+                lookup.set_keep_days(days)
+                reply = {"keepDays": days}
+            elif self.path == "/api/metrics":
+                lookup.set_metrics(body.get("metrics") or {})
+                window.set_setting("metrics", lookup.METRICS)
+                reply = {"metrics": lookup.METRICS}
+            elif self.path == "/api/specicons":
+                window.set_setting("specIcons", bool(body["on"]))
+                reply = {"specIcons": bool(body["on"])}
             elif self.path == "/api/filters":
                 reply = {"filters": set_filters(body)}
             elif self.path == "/api/ontop":
@@ -548,13 +637,14 @@ class Handler(BaseHTTPRequestHandler):
 
 _services_started = False
 _screenshots = None
+_inbox = None
 _lookup = None
 
 
 def start_services():
     """Logs in to Warcraft Logs and starts looking applicants up. Raises MissingCredentials
     if no API client is set up yet."""
-    global _services_started, _lookup
+    global _services_started, _lookup, _inbox
     if _services_started:
         return
     lk = _lookup = lookup.Lookup(log=state.log)
@@ -564,7 +654,8 @@ def start_services():
         state.setup_needed = False
     threading.Thread(target=worker, args=(lk,), daemon=True).start()
     threading.Thread(target=retry_waiting, daemon=True).start()
-    inbox.Inbox(_screenshots, on_page, state.log).start()
+    _inbox = inbox.Inbox(_screenshots, on_page, state.log)
+    _inbox.start()
     state.log(f"Watching {_screenshots}")
 
 

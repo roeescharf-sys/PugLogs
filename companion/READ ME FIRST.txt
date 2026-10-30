@@ -20,7 +20,7 @@ THE FIRST TIME
 EVERY TIME YOU PUG
   Start PugLogs and list your key. Keep its window next to WoW, or tick "keep on top"
   to float it over the game (play WoW in windowed mode).
-  Hover applicants after clicking "Paste logs" in the Group Finder. In game: /pl for commands.
+  Hover applicants after clicking "Paste logs" in the Group Finder. In game: /pl opt for settings.
 
 Keep the PugLogs window open while you play; closing it stops PugLogs.
 PugLogs tells you in its window when a new version is available.

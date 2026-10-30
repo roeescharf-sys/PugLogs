@@ -5,6 +5,7 @@ ns.REGION = "eu"
 -- Link templates. If Warcraft Logs changes its URL format, only these need updating.
 local CHARACTER_URL = "https://www.warcraftlogs.com/character/%s/%s/%s"
 local DUNGEON_QUERY = "?zone=%d&boss=%d"
+local RAID_QUERY = "?zone=%d&difficulty=%d"
 
 local PREFIX = "|cff00ccffPugLogs:|r "
 ns.APP_URL = "https://github.com/roeescharf-sys/PugLogs/releases/latest"
@@ -111,6 +112,63 @@ function ns.GetKeystoneDungeon()
 	end
 end
 
+-- The dungeon of the group you're in: its listing, or the last listing it had (groups stop
+-- being listed once they're full), or else your own key's.
+function ns.GetGroupDungeon()
+	local dungeon = ns.GetListingDungeon()
+	if dungeon then
+		PugLogsDB.groupDungeon = dungeon.challengeMapID
+		return dungeon
+	end
+	return byChallengeMapID[PugLogsDB.groupDungeon or 0] or ns.GetKeystoneDungeon()
+end
+
+-- Looking up the players in your group (a setting in /pl opt, on by default).
+function ns.GroupLookupsActive()
+	return ns.LiveEnabled() and PugLogsDB.groupLookups ~= false and IsInGroup() and not IsInRaid()
+end
+
+-- Raid listings ---------------------------------------------------------------------
+-- A raid listing works like a dungeon for lookups. Its wclEncounterID is negative and holds
+-- the Warcraft Logs zone and difficulty: -(zone * 10 + difficulty), e.g. -534 = zone 53 Heroic.
+
+local WCL_DIFFICULTY = { [14] = 3, [15] = 4, [16] = 5 } -- WoW raid difficulty -> Warcraft Logs
+local DIFFICULTY_NAMES = { [3] = "Normal", [4] = "Heroic", [5] = "Mythic" }
+
+-- The raid you're listing, if any. Only while raid lookups are on (/pl opt), unless always.
+function ns.GetListingRaid(always)
+	if not always and not PugLogsDB.raidLookups then
+		return nil
+	end
+	local entry = C_LFGList.GetActiveEntryInfo()
+	local activityID = entry and entry.activityIDs and entry.activityIDs[1]
+	if not activityID or ns.IsSecret(activityID) then
+		return nil
+	end
+	local info = C_LFGList.GetActivityInfoTable(activityID)
+	local name = info and info.fullName
+	if not name or ns.IsSecret(name) then
+		return nil
+	end
+	for _, raid in ipairs(ns.Season.raids or {}) do
+		if name:find(raid.name, 1, true) then
+			local wowDifficulty = info.difficultyID
+			local difficulty = (wowDifficulty and not ns.IsSecret(wowDifficulty) and WCL_DIFFICULTY[wowDifficulty])
+				or (name:find("Mythic", 1, true) and 5) or (name:find("Heroic", 1, true) and 4)
+				or (name:find("Normal", 1, true) and 3)
+			if difficulty then
+				return { name = DIFFICULTY_NAMES[difficulty] .. " " .. raid.name, raid = raid,
+					difficulty = difficulty, wclEncounterID = -(raid.wclZoneID * 10 + difficulty) }
+			end
+		end
+	end
+end
+
+-- What you're listing: a dungeon, or a raid while raid lookups are on.
+function ns.GetListingTarget()
+	return ns.GetListingDungeon() or ns.GetListingRaid()
+end
+
 -- Your listing's dungeon first, then your own key's.
 function ns.GetContextDungeon()
 	return ns.GetListingDungeon() or ns.GetKeystoneDungeon()
@@ -148,7 +206,9 @@ end
 
 function ns.BuildLogsURL(name, realm, dungeon)
 	local url = CHARACTER_URL:format(ns.REGION, ns.GetRealmSlug(realm), name)
-	if dungeon then
+	if dungeon and dungeon.raid then
+		url = url .. RAID_QUERY:format(dungeon.raid.wclZoneID, dungeon.difficulty)
+	elseif dungeon then
 		url = url .. DUNGEON_QUERY:format(ns.Season.wclZoneID, dungeon.wclEncounterID)
 	end
 	return url
@@ -161,7 +221,7 @@ function ns.ShowLogsFor(fullName, realm, dungeon)
 		return
 	end
 	local name, playerRealm = ns.SplitNameRealm(fullName, realm)
-	dungeon = dungeon or ns.GetContextDungeon()
+	dungeon = dungeon or ns.GetListingDungeon() or ns.GetListingRaid(true) or ns.GetKeystoneDungeon()
 	local title = name .. " - " .. (dungeon and dungeon.name or "all dungeons")
 	ns.ShowCopyPopup(title, ns.BuildLogsURL(name, playerRealm, dungeon))
 end
@@ -169,46 +229,45 @@ end
 -- Slash command ---------------------------------------------------------------
 
 local function PrintHelp()
-	ns.Print("Usage:")
+	ns.Print("Commands:")
+	print("  /pl opt  - settings: live lookups, filters and the applicant panel")
+	print("  /pl panel  - open the PugLogs panel (applicants and my players)")
+	print("  /pl players  - your saved players (Good / Okay / Avoid, with notes)")
 	print("  /pl Name-Realm [dungeon]  - link to a player's logs")
-	print("  /pl panel on|off  - the PugLogs applicant panel next to the Group Finder (sorted, filtered)")
-	print("  /pl panel reset  - put the panel back in its automatic place after dragging it")
-	print("  /pl panel invite on|off  - experimental Invite/Decline buttons in that panel")
-	print("  /pl debug  - show which dungeon PugLogs detects")
-	print("  /pl debug on|off  - show each step of a paste request in chat (for bug reports)")
-	print("  /pl live on|off  - send applicants to the PugLogs window on your computer")
-	print("  /pl send  - send the current applicants again")
-	print("  /pl test  - take one test screenshot and report each step")
-	print("  /pl paste  - paste results from the PugLogs window into applicant tooltips")
-	print("  /pl opt  - settings: live lookups and applicant filters (item level, rating, role, class, spec)")
-	print("  /pl sort role|rating|log|default  - order of the applicant list")
-	print("  /pl wcl  - open the Warcraft Logs API key page in the PugLogs app")
-	print("  /pl app  - download link for the PugLogs app (needed for live lookups)")
 	print("  Or right-click an applicant or group member and choose \"Check logs\".")
 end
+
+-- Commands that were replaced by buttons and settings: say where they went instead of
+-- looking up a player called "paste".
+local MOVED = {
+	app = "The PugLogs app download link is in /pl opt.",
+	sort = "Choose the order of the applicant list in /pl opt.",
+	live = "Turn live lookups on or off in /pl opt.",
+	wcl = "Use \"Change API Key\" at the bottom of the PugLogs app window.",
+}
 
 SLASH_PUGLOGS1 = "/pl"
 SLASH_PUGLOGS2 = "/puglogs"
 SlashCmdList.PUGLOGS = function(msg)
 	msg = strtrim(msg or "")
-	if msg == "" then
+	if msg == "" or msg:lower() == "help" then
 		PrintHelp()
-	elseif msg == "app" then
-		ns.ShowCopyPopup("PugLogs app - free download", ns.APP_URL)
-	elseif msg:match("^sort") then
-		local value = ({ default = "default", role = "role", rating = "rating", score = "rating", log = "log", logs = "log" })[msg:match("^sort%s+(%a+)") or ""]
-		if value then
-			ns.SetSort(value)
-			ns.Print("Applicant list sorted by " .. (value == "default" and "Blizzard's order" or value) .. ".")
+	elseif msg:lower():match("^panel") then -- also the old "/pl panel on"
+		if ns.OpenPanel then
+			ns.OpenPanel()
+		end
+	elseif msg:lower() == "players" then
+		if ns.OpenMyPlayers then
+			ns.OpenMyPlayers()
 		else
-			ns.Print("Use /pl sort role, /pl sort rating, /pl sort log or /pl sort default.")
+			ns.Print("My players needs a full restart of WoW after updating PugLogs (/reload isn't enough).")
 		end
 	elseif msg == "opt" then
 		ns.OpenFilters()
 	elseif msg == "paste" then
-		ns.OpenPasteBox()
-	elseif ns.HandlePanelSlash and ns.HandlePanelSlash(msg) then
-		return
+		ns.OpenPasteBox() -- for groups that aren't listed, where there's no Paste logs button
+	elseif MOVED[msg:match("^%a+") or ""] and not msg:find("-", 1, true) then
+		ns.Print(MOVED[msg:match("^%a+")])
 	elseif ns.HandleLiveSlash and ns.HandleLiveSlash(msg) then
 		return
 	elseif msg == "debug" then
@@ -252,7 +311,7 @@ welcome:SetScript("OnEvent", function()
 		if ns.AppInstalled() then
 			ns.Print("The PugLogs app is installed - live Warcraft Logs runs are on (turn them off in /pl opt).")
 		else
-			ns.Print("For live Warcraft Logs runs of your applicants, install the free PugLogs app: type |cffffd100/pl app|r for the link.")
+			ns.Print("For live Warcraft Logs runs of your applicants, install the free PugLogs app: the link is in |cffffd100/pl opt|r.")
 		end
 	end)
 end)

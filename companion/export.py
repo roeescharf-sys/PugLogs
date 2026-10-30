@@ -2,6 +2,7 @@
 import threading
 
 import clipboard
+import lookup
 from lookup import spec_mismatch
 
 
@@ -37,6 +38,9 @@ def build(listing, members, results, result_key, request=None):
             records.append(f"{who},0")
             continue
         run = result["featured"]
+        if run.get("raid"):  # raids: kills, bosses, median and best average percentile in the same places
+            run = dict(run, key=run["kills"], timed=True, duration=run["bosses"] * 1000,
+                       dps=run.get("median"), percent=run.get("best"))
         fields = [
             who, str(run.get("key") or 0), "1" if run.get("timed") else "0",
             _num((run.get("duration") or 0) / 1000), _num(run.get("dps")), _num(run.get("percent"), 1),
@@ -44,12 +48,17 @@ def build(listing, members, results, result_key, request=None):
             _clean(result.get("reason", "")),
             _clean(run.get("spec") or ""),
             str(spec_mismatch(m.spec, run.get("spec"))),
+            "hps" if run.get("metric") == "hps" else "",  # older addons ignore this field
+            str(int(result.get("lookedUpAt") or 0)),  # when it was fetched from Warcraft Logs
         ]
+        for also in (run.get("also") or [])[:1]:  # a second number, e.g. a tank's HPS
+            fields += [also["metric"], _num(also.get("amount")), _num(also.get("percent"), 1)]
         records.append(",".join(fields))
     if pending:
         records.append(f"!pending,{pending}")  # still being looked up
     if request:
         records.append(f"!req,{_clean(request)}")  # which paste request this answers
+    records.append(f"!keep,{lookup.PLAYER_TTL // 86400}")  # days the addon keeps these results
     head = ["PLR1", str(listing["encounterId"]), str(listing.get("key") or 0), _clean(listing.get("dungeon", ""))]
     return ";".join(head + records)
 

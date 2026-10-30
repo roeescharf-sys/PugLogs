@@ -131,8 +131,8 @@ Nothing else to install: the download includes everything it needs (only running
 
 Next time, just start PugLogs before you list a key. It tells you in its window when a new
 version is out. PugLogs finds WoW by itself (including custom install folders known to
-Battle.net); if it can't, its window asks you to choose the World of Warcraft folder. In game, `/pl wcl` reopens the API key page and
-`/pl app` shows the download link.
+Battle.net); if it can't, its window asks you to choose the World of Warcraft folder. To change your API key later, use **Change API Key** at the bottom of
+its window; the download link is also in `/pl opt` in game.
 
 ### Running from source (developers)
 Requires Python 3.12+. Clone the repository, then start `companion/run.sh` (macOS) or
@@ -168,15 +168,50 @@ always listed at the bottom of the window, whatever the sort.
 The percentile is the one Warcraft Logs shows on the log: DPS compared with the same spec at
 the same key level.
 
+### DPS and HPS
+By default healers are looked up by **healing (HPS)** and everyone else by **damage (DPS)**. In the
+app's **Settings** you choose per role (tanks, healers, DPS) whether to see DPS, HPS or both - a
+tank's HPS, for example. Each number costs about 1.3 Warcraft Logs API points per player; with
+both, the HPS is from the same run as the DPS.
+
+### Saved lookups
+Every lookup is saved, in the app and in WoW, for as long as **Keep lookups for** in the app's
+Settings says (1 day by default). Someone who applies again shows their run right away, without a
+new paste and without spending API points. Tooltips and the window say when a player was looked
+up. To ask Warcraft Logs again anyway: **Look Up Again** next to the player in the app window, or
+**Look up logs again** in their right-click menu in WoW (then Paste logs).
+
+### Players in your group
+With **Look up the players in my group** (in `/pl opt`, on by default) PugLogs also looks up the
+players in your party - whether or not you're the leader - for your group's dungeon (its listing,
+the last one it had, or your own key). After **Paste logs** (or `/pl paste` when the group isn't
+listed), hover a player in your group to see their run. The app window lists them under
+"Your group".
+
+### My players
+Right-click any player (an applicant, someone in your group, a name in chat) → **Add to my
+players...** to save them as **Good**, **Okay** or **Avoid**, with a note ("great tank, logs undersell
+him"). The list is saved for your whole account. The panel's **My players** tab shows it - filter
+by role and mark, click a player to edit or remove them; `/pl players` (or `/pl opt` → **Open my
+players**) opens it without the Group Finder. Your mark and note show in their tooltip, PugLogs tells you in chat when
+a saved player applies or joins your group, and the app window shows your marks. With **Hide players
+I marked Avoid** (in `/pl opt`, off by default) they're left out of the panel and the app and never
+looked up; Blizzard's own list isn't changed.
+
+### Raids
+With **Look up raid applicants** (in `/pl opt`, off by default), listing the current raid shows
+each applicant's **bosses killed** at your listing's difficulty and their **average parse** (best
+and median) - DPS, HPS or both like for dungeons. A raid lookup costs about **5 API points** per
+player and number (a dungeon lookup about 1.3). The raids are in `PugLogs/Data/Season.lua`.
+
 ### Applicant panel
 Next to the Group Finder, while you look at your applicants, PugLogs shows its own list: your
 applicants **without the filtered ones, sorted by Log, DPS, Rating, iLvl, Role or applied order**, with
 each player's run from your last paste (key, timed or over, DPS percentile; `!` = run in another
 role, `*` = another spec). Hover a row for the full tooltip. It never changes Blizzard's own list,
 so it can't cause Group Finder errors. It sits beside Raider.IO's profile window when that's shown;
-drag it by its title to put it anywhere (`/pl panel reset` returns it to the automatic spot).
-`/pl panel off` hides it, `/pl panel on` brings it back.
-Experimental: `/pl panel invite on` adds Invite (+) and Decline (x) buttons to the panel.
+drag it by its title to put it anywhere. In `/pl opt` you can hide it, put it back in its automatic
+spot after dragging, and turn off its Invite (+) and Decline (x) buttons.
 
 ### Settings (`/pl opt`, or Options → AddOns → PugLogs)
 - **Live Warcraft Logs lookups with the PugLogs app** - turn off if you only want "Check logs"
@@ -184,7 +219,9 @@ Experimental: `/pl panel invite on` adds Invite (+) and Decline (x) buttons to t
   installed (it adds a tiny "PugLogs (app)" addon so the addon can tell). The same switch is
   next to the **Paste logs** button in the Group Finder ("PugLogs" checkbox).
 - **Only while I can invite** (on by default) - as a group member who isn't leader or assistant,
-  PugLogs stays quiet: no screenshots and no Warcraft Logs lookups.
+  PugLogs doesn't look up applicants.
+- **Look up the players in my group** (on by default) and **Look up raid applicants** (off by
+  default) - see above.
 
 ### Filters
 - **Minimum item level** and **minimum M+ rating**
@@ -203,16 +240,23 @@ Experimental: `/pl panel invite on` adds Invite (+) and Decline (x) buttons to t
 ### Commands
 | Command | |
 |---|---|
-| `/pl` | List the commands |
-| `/pl opt` | Open the settings (live lookups and filters) |
-| `/pl wcl` | Open the Warcraft Logs API key page in the PugLogs app (to enter or change your key) |
-| `/pl paste` | Open the paste box (also: key binding in Options → Keybindings → AddOns) |
+| `/pl opt` | Open the settings (live lookups, applicant panel, filters, app download link) |
+| `/pl panel` | Open the PugLogs panel (applicants and My players), also after closing it with its X |
+| `/pl players` | Open your saved players (Good / Okay / Avoid, with notes) |
 | `/pl Name-Realm [dungeon]` | Link to a player's logs, e.g. `/pl Anna-Kazzak voidscar` |
-| `/pl send` | Send your current applicants to the companion again |
-| `/pl live on\|off` | Turn the QR screenshots on or off |
-| `/pl qr subtle\|classic` | Faint dark code (default) or the black-and-white one if the faint one isn't read |
+
+Everything else is a button: **Paste logs** next to the Group Finder (or a key binding in
+Options → Keybindings → AddOns), **Check logs** in the right-click menu.
+
+For troubleshooting (not listed in game):
+
+| Command | |
+|---|---|
 | `/pl test` | Take one test screenshot and report each step in chat |
+| `/pl send` | Send your current applicants to the companion again |
 | `/pl debug` | Show which dungeon PugLogs detects |
+| `/pl debug on\|off` | Show each step of a paste request in chat |
+| `/pl qr subtle\|classic` | Faint dark code (default) or the black-and-white one if the faint one isn't read |
 
 ---
 
@@ -258,8 +302,10 @@ Experimental: `/pl panel invite on` adds Invite (+) and Decline (x) buttons to t
   (regenerate with `tools/gen_realms.py`); other regions need their own table and `ns.REGION`.
 - **Each season** the dungeon list changes: update `PugLogs/Data/Season.lua` and
   `SEASON_ZONE_ID` in `companion/app.py`.
-- Only damage is shown. Interrupts, dispels and other stats were tried but cost several API
-  points per run, so they were removed.
+- Only damage and healing are shown. Interrupts, dispels and other stats were tried but cost
+  several API points per run, so they were removed.
+- Raid listings are recognised by the raid's English name, so raid lookups need an English
+  game client for now.
 - Tooltips update when you paste (one keystroke); the live window updates by itself.
 - Windows support is untested.
 

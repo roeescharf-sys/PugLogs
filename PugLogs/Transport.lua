@@ -127,8 +127,15 @@ local function Clean(value)
 	return value
 end
 
+-- Your mark for a saved player (My players), sent so the PugLogs app can show it: G, O, A or "".
+local MARK_CODES = { good = "G", okay = "O", avoid = "A" }
+local function MarkCode(fullName, realm)
+	local saved = ns.GetSavedPlayer and ns.GetSavedPlayer(fullName, realm)
+	return saved and MARK_CODES[saved.mark] or ""
+end
+
 local function GetListingKeyLevel(dungeon)
-	if dungeon and ns.GetKeystoneDungeon() == dungeon then
+	if dungeon and not dungeon.raid and ns.GetKeystoneDungeon() == dungeon then
 		local ok, level = pcall(C_MythicPlus.GetOwnedKeystoneLevel)
 		if ok and Clean(level) then
 			return level
@@ -140,7 +147,7 @@ end
 -- Returns the listing's dungeon, one line per applicant member who passes your filters,
 -- and how many were filtered out.
 local function CollectApplicants()
-	local dungeon = C_LFGList.GetActiveEntryInfo() and ns.GetListingDungeon()
+	local dungeon = C_LFGList.GetActiveEntryInfo() and ns.GetListingTarget()
 	if not dungeon then
 		return nil, {}, 0
 	end
@@ -159,6 +166,7 @@ local function CollectApplicants()
 				break
 			end
 		end
+		groupFiltered = groupFiltered or (ns.ApplicationAvoided and ns.ApplicationAvoided(applicantID)) -- hidden Avoid players aren't sent
 		if (status == "applied" or status == "invited") and groupFiltered then
 			filtered = filtered + numMembers -- not sent, so never looked up
 		elseif status == "applied" or status == "invited" then
@@ -173,8 +181,58 @@ local function CollectApplicants()
 					lines[#lines + 1] = table.concat({
 						index, name, ns.GetRealmSlug(realm), CLASS_IDS[classFile] or 0,
 						ROLE_CODES[assignedRole or ""] or "", itemLevel, score, SpecPosition(Clean(specID)),
+						MarkCode(fullName),
 					}, "\t")
 				end
+			end
+		end
+	end
+	return dungeon, lines, filtered
+end
+
+-- The players in your group (not you), numbered -1, -2, ... so the PugLogs app can tell them
+-- from applicants. Their item level isn't known without inspecting, so it's sent as 0.
+local function CollectGroup()
+	local lines = {}
+	if not ns.GroupLookupsActive() then
+		return lines
+	end
+	local specs = {}
+	for _, m in ipairs(ns.groupMembers or {}) do
+		specs[m.name] = m.specID
+	end
+	for i = 1, GetNumSubgroupMembers() do
+		local unit = "party" .. i
+		local name, realm = UnitName(unit)
+		local _, classFile = UnitClass(unit)
+		name, realm, classFile = Clean(name), Clean(realm), Clean(classFile)
+		if name and classFile then
+			local summary = C_PlayerInfo and C_PlayerInfo.GetPlayerMythicPlusRatingSummary
+				and C_PlayerInfo.GetPlayerMythicPlusRatingSummary(unit)
+			local score = math.floor(Clean(summary and summary.currentSeasonScore) or 0)
+			local _, playerRealm = ns.SplitNameRealm(name, realm)
+			lines[#lines + 1] = table.concat({
+				-i, name, ns.GetRealmSlug(playerRealm), CLASS_IDS[classFile] or 0,
+				ROLE_CODES[Clean(UnitGroupRolesAssigned(unit)) or ""] or "", 0, score, SpecPosition(specs[name]),
+				MarkCode(name, realm),
+			}, "\t")
+		end
+	end
+	return lines
+end
+
+-- Applicants (while you can invite, or for the paste box) plus the players in your group.
+local function CollectAll(forRequest)
+	local dungeon, lines, filtered = nil, {}, 0
+	if forRequest or ns.LiveActive() then
+		dungeon, lines, filtered = CollectApplicants()
+	end
+	local group = CollectGroup()
+	if #group > 0 then
+		dungeon = dungeon or ns.GetGroupDungeon()
+		if dungeon then
+			for _, line in ipairs(group) do
+				lines[#lines + 1] = line
 			end
 		end
 	end
@@ -377,13 +435,13 @@ function SendNow(force)
 	if pages then
 		return -- a capture is already running; the next change will trigger another
 	end
-	if not ns.LiveActive() then
-		return -- live lookups off, or you can't invite: never take screenshots
+	if not (ns.LiveActive() or ns.GroupLookupsActive()) then
+		return -- live lookups off, or you can't invite and aren't in a group: no screenshots
 	end
 	if not CanCapture() then
 		return -- retried when combat ends
 	end
-	local dungeon, lines, filtered = CollectApplicants()
+	local dungeon, lines, filtered = CollectAll(false)
 	local signature = (dungeon and dungeon.name or "-") .. "\n" .. filtered .. "\n" .. table.concat(lines, "\n")
 	if signature == lastSignature and not force then
 		return
@@ -444,6 +502,9 @@ events:SetScript("OnEvent", function(_, event, arg1)
 			C_Timer.After(0.2, CaptureNextPage)
 		end
 	else
+		if event == "GROUP_ROSTER_UPDATE" and not IsInGroup() then
+			PugLogsDB.groupDungeon = nil -- left the group: forget its dungeon
+		end
 		ScheduleSend()
 	end
 end)
@@ -460,6 +521,23 @@ end)
 -- Filters changed in the options: send the new (filtered) applicant list.
 function ns.OnFiltersChanged()
 	ScheduleSend()
+end
+
+-- "Look up again": asks the PugLogs app to fetch these players from Warcraft Logs again
+-- even though their lookup is saved ("F" code with just their names).
+function ns.SendRefresh(fullName, dungeon)
+	ClearStaleCapture(true)
+	if pages or not CanCapture() then
+		ns.Print("Busy or in combat - try \"Look up again\" in a moment.")
+		return false
+	end
+	local name, realm = ns.SplitNameRealm(fullName)
+	pages = BuildPages(dungeon, { table.concat({ 0, name, ns.GetRealmSlug(realm), 0, "", 0, 0, 0 }, "\t") }, 0, "F")
+	pagesFlag = "F"
+	pageIndex = 0
+	BeginCapture()
+	CaptureNextPage()
+	return true
 end
 
 -- Sends a request to the companion:
@@ -496,7 +574,7 @@ function ns.SendRequest(flag)
 	end
 	local dungeon, lines, filtered
 	if flag == "R" then
-		dungeon, lines, filtered = CollectApplicants()
+		dungeon, lines, filtered = CollectAll(true)
 	end
 	if dungeon then
 		lastSignature = (dungeon.name or "-") .. "\n" .. filtered .. "\n" .. table.concat(lines, "\n")
@@ -526,23 +604,13 @@ function ns.RequestCopy()
 end
 
 function ns.HandleLiveSlash(msg)
-	if msg == "live on" or msg == "live off" then
-		ns.SetLive(msg == "live on")
-		ns.Print("Live lookups with the PugLogs app " .. (ns.LiveEnabled() and "on." or "off."))
-		return true
-	elseif msg == "live" then
-		ns.Print("Live lookups with the PugLogs app are " .. (ns.LiveEnabled() and "on" or "off") .. ". Use /pl live on|off.")
-		return true
-	elseif msg == "send" then
+	-- Troubleshooting commands, left out of the /pl help on purpose.
+	if msg == "send" then
 		SendNow(true)
 		return true
 	elseif msg == "qr subtle" or msg == "qr classic" then
 		PugLogsDB.qrStyle = msg:sub(4)
 		ns.Print("QR style: " .. PugLogsDB.qrStyle .. (PugLogsDB.qrStyle == "subtle" and " (faint dark code)." or " (black and white)."))
-		return true
-	elseif msg == "wcl" or msg == "key" or msg == "setup" then
-		ns.SendRequest("S")
-		ns.Print("Opening the Warcraft Logs API key page in PugLogs. If nothing opens, start the PugLogs app first.")
 		return true
 	elseif msg == "debug on" or msg == "debug off" then
 		PugLogsDB.debugPaste = (msg == "debug on")
