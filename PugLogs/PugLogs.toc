@@ -1,13 +1,13 @@
 ## Interface: 120105
 ## Title: PugLogs
-## Notes: Warcraft Logs runs for your Mythic+ applicants, filters and a Check logs link. Live lookups use the free PugLogs app.
+## Notes: Warcraft Logs runs for your Mythic+ applicants and group, an applicant panel, filters, My players notes and a Check logs link. Live lookups use the free PugLogs app.
 ## Category: Dungeons & Raids
 ## Author: Roee
 ## X-License: MIT
 ## X-Website: https://github.com/roeescharf-sys/PugLogs
 ## X-Curse-Project-ID: 1749845
 ## X-Wago-ID: jK8Wv46y
-## Version: 0.9.14
+## Version: 0.9.15
 ## SavedVariables: PugLogsDB
 
 Libs\qrencode.lua

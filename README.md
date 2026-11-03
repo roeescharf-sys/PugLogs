@@ -19,8 +19,8 @@ Check logs work without the app.
 ## What it does
 
 **Warcraft Logs runs** (with the app)
-- **Their run in the dungeon you listed, one key level below yours**: you list a +20 Murder Row,
-  you see their best timed +19 Murder Row - in the applicant tooltip, the PugLogs panel and the app
+- **Their best timed run in the dungeon you listed, at or below your key level**: you list a +20
+  Murder Row, you see their best timed +20 Murder Row (or +19 if they haven't timed a +20) - in the applicant tooltip, the PugLogs panel and the app
   window. Runs in the role they applied as come first; if they have none, another role's run is
   shown with a warning ([which run is shown](#which-run-is-shown)).
 - **DPS, or HPS for healers**, with the percentile Warcraft Logs shows on the log. Per role you
@@ -73,7 +73,7 @@ appears when you point at a player. The window follows your system's light or da
 PugLogs - Murder Row
 +19  31:03 timed        364K DPS (57)
 as Balance
-best timed +19  3 Oct 2026
+best timed +19 - 3 Oct 2026
 Looked up today
 ```
 
@@ -198,11 +198,12 @@ On macOS you can symlink the addon into WoW to edit it in place
 4. **Right-click** any applicant or player → **Check logs** for their Warcraft Logs page.
 
 ### Which run is shown
-For a +20 listing: their best timed **+19** (highest percentile among their +19s - DPS, or HPS for
-healers). If they
-have no timed +19, the closest lower key; if all their timed runs are higher, the closest higher
-one; if nothing is timed, their highest run, marked "over". If PugLogs can't tell your key level
-(e.g. you listed someone else's key), it shows their highest timed run.
+For a +20 listing: their best timed **+20** (highest percentile among their +20s - DPS, or HPS for
+healers). If they have no timed +20, the closest lower key; if all their timed runs are higher, the
+closest higher one; if nothing is timed, their highest run, marked "over".
+
+The key level comes from the keystone in your bags, if it's for the listed dungeon. If PugLogs can't
+tell the level (e.g. you listed someone else's key), it shows their highest timed run.
 
 Only runs in the **role they applied as** are considered (a healing run says little about how
 someone plays DPS). If they have no logs in that role, their run in another role is shown with a

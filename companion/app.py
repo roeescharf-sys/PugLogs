@@ -96,6 +96,7 @@ class State:
         self.copied_text = None
         self.paste_request = None    # ID of the latest paste-box request (sent back in the copy)
         self.answered_request = None # the paste request we last copied results for
+        self.copy_until = 0          # Unix time until which copy_for_paste_box copies again
         self.copied_at = None
         self.waiting = {}            # rkey -> lookup job, retried when the hourly limit resets
 
@@ -227,11 +228,19 @@ def on_page(page):
         copy_for_paste_box()
         return
     done = state.add_page(page)
+    if "R" in page.flags:
+        # If a code of this paste request never arrives (codes come a second apart), still
+        # answer it with the applicant list we already have, rather than leaving the paste
+        # box waiting: 3 seconds after its newest code.
+        timer = _answer_timers.pop(page.batch, None)
+        if timer:
+            timer.cancel()
+        if not done:
+            timer = threading.Timer(3, answer_if_unanswered, args=(page.batch,))
+            timer.daemon = True
+            _answer_timers[page.batch] = timer
+            timer.start()
     if not done:
-        if "R" in page.flags:
-            # If a code of this paste request never arrives, still answer it with the
-            # applicant list we already have, rather than leaving the paste box waiting.
-            threading.Timer(3, answer_if_unanswered, args=(page.batch,)).start()
         return
     page, members = done
     with state.lock:
@@ -260,7 +269,8 @@ def on_page(page):
         copy_for_wow()
 
 
-PASTE_WAIT = 4  # seconds the paste box waits for new applicants' lookups
+PASTE_WAIT = 15  # seconds the app keeps copying again as new applicants' lookups finish
+_answer_timers = {}  # paste request ID -> timer that answers it if a code never arrives
 RETRY_FAILED_AFTER = 60  # seconds before a failed lookup is tried again
 
 
@@ -293,13 +303,14 @@ def refresh_player(player_key):
 
 
 def answer_if_unanswered(batch):
+    _answer_timers.pop(batch, None)
     with state.lock:
         unanswered = state.paste_request == batch and state.answered_request != batch
         if unanswered:
             state.answered_request = batch  # claim it, so it's answered only once
     if unanswered:
         state.log("Part of the paste request didn't arrive - answering with the applicants already known")
-        copy_for_paste_box()
+        copy_for_paste_box(PASTE_WAIT)
 
 
 def lookups_in_progress():
@@ -312,39 +323,58 @@ def lookups_in_progress():
 
 def copy_for_paste_box(wait=0):
     """The paste box in WoW asked for results: copy what we have right away (the box tells the
-    player it's ready a moment after asking), then copy again once new applicants' lookups finish."""
+    player it's ready a moment after asking), then copy again as new applicants' lookups finish
+    (the box stays open for another paste while some are still loading)."""
     state.log("Paste box opened in WoW")
+    deadline = time.time() + wait
     with state.lock:
-        state.answered_request = state.paste_request
+        request = state.answered_request = state.paste_request
+        state.copy_until = deadline  # the paste box stays open for another paste until then
     if copy_for_wow(force=True, restore=True):
         state.log("Results copied for WoW - press Cmd+V in the paste box")
     else:
         state.log("Paste box opened, but there are no results to copy yet")
-    if not wait or not lookups_in_progress():
-        return
-    deadline = time.time() + wait
-    while time.time() < deadline and lookups_in_progress():
-        time.sleep(0.1)
-    with state.lock:
-        changed = export.build(state.listing, state.members, state.results, result_key,
-                               state.paste_request) != state.copied_text
-    if changed and copy_for_wow(force=True, restore=True):
-        state.log("Copied again with the newly looked-up applicants - paste again to load them")
+    while time.time() < deadline:
+        left = lookups_in_progress()  # (before building, so the last lookup's result is copied too)
+        with state.lock:
+            if state.paste_request != request:
+                return  # a newer paste request copies for itself
+            changed = paste_text() != state.copied_text
+        # Copy as soon as anyone's lookup finishes, until the last one is done.
+        if changed:
+            if not copy_for_wow(force=True, restore=True, recopy=True):
+                return  # you copied something else meanwhile: leave the clipboard alone
+            state.log("Copied again with the newly looked-up applicants - paste again to load them"
+                      + (f" ({left} still loading)" if left else ""))
+        if not left:
+            return
+        time.sleep(0.25)
 
 
-def copy_for_wow(force=False, restore=False):
+def paste_text():
+    """The paste text for the current results (call with state.lock held)."""
+    return export.build(state.listing, state.members, state.results, result_key, state.paste_request,
+                        state.copy_until)
+
+
+def copy_for_wow(force=False, restore=False, recopy=False):
     """Puts the paste text for WoW on the clipboard when results changed (or when forced).
-    With restore, your previous clipboard text is put back a little later."""
+    With restore, your previous clipboard text is put back a little later.
+    recopy: an update of the paste box's copy - skipped if you copied something since."""
     with state.lock:
         if not (state.auto_copy or force):
             return False
-        text = export.build(state.listing, state.members, state.results, result_key, state.paste_request)
+        text = paste_text()
         if not text and force and state.paste_request:
             text = f"PLR1;0;0;;!pending,0;!req,{export._clean(state.paste_request)};!keep,1"
         if not text or (text == state.copied_text and not force):
             return False
     try:
-        (export.copy_then_restore if restore else export.copy)(text)
+        if restore:
+            if not export.copy_then_restore(text, recopy):
+                return False
+        else:
+            export.copy(text)
     except Exception as e:
         state.log(f"Could not copy to clipboard: {e}")
         return False

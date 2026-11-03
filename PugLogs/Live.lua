@@ -15,6 +15,9 @@
 -- still shows their run without a new paste.
 --   (stats fields are empty when not loaded; "name-realmslug,0" = no logs in this dungeon,
 --    "name-realmslug,0,hidden" = they hid their rankings on Warcraft Logs)
+--   "!pending,N[,copyUntil,who:waiting,who:error,...]" = N applicants still being looked up; the app
+--   copies again as they finish until copyUntil (Unix time); players not looked up yet because of
+--   Warcraft Logs' hourly limit ("waiting") or a failed lookup ("error"). Older addons read only N.
 local _, ns = ...
 
 local MAGIC = "PLR1"
@@ -45,6 +48,13 @@ local function Parse(text)
 		local who = f[1]
 		if who == "!pending" then
 			data.pending = Num(f[2]) or 0 -- applicants the companion was still looking up
+			data.copyUntil = Num(f[3]) -- older apps don't send it (they don't keep copying)
+			for i = 4, #f do
+				local name, status = f[i]:match("^(.+):(%a+)$")
+				if name then
+					data.players[name:lower()] = { none = true, waiting = status == "waiting" or nil, failed = status == "error" or nil }
+				end
+			end
 		elseif who == "!req" then
 			data.request = f[2] -- the paste request these results answer
 		elseif who == "!keep" then
@@ -91,6 +101,10 @@ local readyAt -- GetTime() when the box last said "Ready"
 -- A wrong paste soon after "Ready" is usually the app still copying: asking again (new codes
 -- on screen) only delays it further, pasting once more works.
 local RESEND_AFTER = 8
+-- Results with players still being looked up: the box stays open while the app copies again as
+-- their lookups finish (it says until when), and says Ready for the rest after MORE_TIME.
+local MORE_TIME = 2
+local loadedRequest -- the request whose answer last closed the box
 
 local function SetWarning(text)
 	pasteFrame.warning:SetText(text or "")
@@ -175,6 +189,16 @@ local function OnPasted(editBox)
 		return
 	end
 	if data.encounterID == 0 and data.count == 0 then
+		if fromThisBox and data.request:find("^req%-") then
+			-- The request carried no dungeon and the app has none either: asking again can't help.
+			if readyTimer then
+				readyTimer:Cancel()
+				readyTimer = nil
+			end
+			ready = true
+			SetHint("Nothing to load yet - list a key (or join a group) first.", 1, 0.7, 0.3)
+			return
+		end
 		AskAgain("The PugLogs app is still loading.")
 		return
 	end
@@ -187,6 +211,25 @@ local function OnPasted(editBox)
 	if ns.OnLiveResultsPasted then
 		ns.OnLiveResultsPasted()
 	end
+	local pending = data.pending or 0
+	if pending > 0 and fromThisBox and data.copyUntil and time() < data.copyUntil then
+		-- Players who just applied are still being looked up: the app copies again when they're
+		-- done, so keep the box open for one more Cmd+V instead of making them reopen it.
+		ready = false
+		if readyTimer then
+			readyTimer:Cancel()
+		end
+		SetHint(("Loaded %d - %d still being looked up..."):format(data.count, pending), 0.7, 0.7, 0.7)
+		readyTimer = C_Timer.NewTimer(MORE_TIME, function()
+			readyTimer = nil
+			ready = true
+			readyAt = GetTime()
+			SetHint(("Ready - press %s for the other %d"):format(PASTE_KEY, pending), 0.3, 1, 0.4)
+			pasteFrame.editBox:SetFocus()
+		end)
+		return
+	end
+	loadedRequest = data.request
 	pasteFrame:Hide()
 	ns.Print(("Loaded %d player(s) for %s%s. Hover over applicants to see their run."):format(
 		data.count, data.dungeon ~= "" and data.dungeon or "?", data.keyLevel > 0 and (" +" .. data.keyLevel) or ""))
@@ -210,6 +253,13 @@ local function CreatePasteFrame()
 		insets = { left = 11, right = 12, top = 12, bottom = 11 },
 	})
 	tinsert(UISpecialFrames, "PugLogsPasteFrame")
+	-- A "Ready" timer left running would give the hidden edit box the keyboard.
+	frame:SetScript("OnHide", function()
+		if readyTimer then
+			readyTimer:Cancel()
+			readyTimer = nil
+		end
+	end)
 
 	local title = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
 	title:SetPoint("TOP", 0, -18)
@@ -255,7 +305,9 @@ function ns.OpenPasteBox()
 	pasteFrame.editBox:SetText("")
 	ready = false
 	retries = 0
-	openedAt = GetTime()
+	-- Reopened while its last request is still on its way: that answer still counts.
+	local last = ns.lastPasteRequest and ns.pasteRequests[ns.lastPasteRequest]
+	openedAt = (last and GetTime() - last < 10 and ns.lastPasteRequest ~= loadedRequest) and last or GetTime()
 	readyAt = nil
 	SetWarning(nil)
 	SetHint("Getting the latest results...", 0.7, 0.7, 0.7)
@@ -267,7 +319,14 @@ end
 
 -- Progress of the paste box's request, from Transport.lua, so you can see where it is.
 function ns.OnPasteRequestStatus(stage, codes)
-	if not (pasteFrame and pasteFrame:IsShown()) or ready then
+	if not (pasteFrame and pasteFrame:IsShown()) then
+		return
+	end
+	if stage == "sending" then
+		-- A newer request is going out (e.g. the box was reopened): "Ready" follows this one.
+		ready = false
+		StartFallback()
+	elseif ready then
 		return
 	end
 	if stage == "queued" then
@@ -290,7 +349,7 @@ function ns.OnPasteRequestDone(delivered)
 	end
 	if not delivered then
 		ready = true
-		SetHint("Couldn't send the request - is the PugLogs window running? Try again.", 1, 0.4, 0.3)
+		SetHint(("Couldn't send the request (no screenshot, or in combat or a key). Try again with %s."):format(PASTE_KEY), 1, 0.4, 0.3)
 		return
 	end
 	SetHint("Waiting for the PugLogs window...", 0.7, 0.7, 0.7)
@@ -433,7 +492,11 @@ function ns.RememberResults(data)
 	for who, entry in pairs(data.players) do
 		entry.lookedUpAt = entry.lookedUpAt or data.at -- older apps don't send the date
 		entry.raid = data.encounterID < 0 or nil -- raid results (see RaidText)
-		bucket[who] = entry
+		local old = bucket[who]
+		-- "Not looked up yet" never replaces a run we already have.
+		if not ((entry.waiting or entry.failed) and old and not (old.waiting or old.failed)) then
+			bucket[who] = entry
+		end
 	end
 	local oldest = time() - KeepSeconds()
 	for _, players in pairs(saved) do
@@ -464,7 +527,19 @@ function ns.LiveEntry(fullName, dungeon)
 	if entry and (entry.lookedUpAt or 0) < time() - KeepSeconds() then
 		return nil -- older than the app's "Keep lookups for"
 	end
+	if entry and (entry.waiting or entry.failed) and entry.lookedUpAt < time() - 600 then
+		return nil -- "not looked up yet" is only news for a few minutes
+	end
 	return entry
+end
+
+-- Why a player has no run yet, when the app couldn't look them up (nil otherwise).
+function ns.UnavailableText(entry)
+	if entry.waiting then
+		return "Warcraft Logs' hourly limit is reached - the PugLogs app looks them up after the reset. Paste logs again then."
+	elseif entry.failed then
+		return "The PugLogs app couldn't look them up - it tries again in a minute. Paste logs again then."
+	end
 end
 
 -- The damage per second of a player's run, whichever of the numbers it is (nil if only HPS).
@@ -535,6 +610,8 @@ local function AddApplicantLines(applicantID, memberIdx)
 	GameTooltip:AddLine("PugLogs - " .. dungeon.name, 0, 0.8, 1)
 	if not entry then
 		GameTooltip:AddLine("Not loaded yet - paste again from the PugLogs window.", 0.6, 0.6, 0.6)
+	elseif ns.UnavailableText(entry) then
+		GameTooltip:AddLine(ns.UnavailableText(entry), 1, 0.7, 0.28, true)
 	elseif entry.hidden then
 		GameTooltip:AddLine("Logs hidden - they hid their rankings on Warcraft Logs.", 1, 0.7, 0.28, true)
 	elseif entry.none then
@@ -569,7 +646,7 @@ local function AddApplicantLines(applicantID, memberIdx)
 			GameTooltip:AddLine(entry.reason, 0.6, 0.6, 0.6)
 		end
 	end
-	if entry and LookedUpText(entry.lookedUpAt) then
+	if entry and not ns.UnavailableText(entry) and LookedUpText(entry.lookedUpAt) then
 		GameTooltip:AddLine(LookedUpText(entry.lookedUpAt), 0.5, 0.5, 0.5)
 	end
 	GameTooltip:Show()
@@ -599,6 +676,8 @@ local function AddUnitLines(tooltip)
 	tooltip:AddLine("PugLogs - " .. dungeon.name, 0, 0.8, 1)
 	if not entry then
 		tooltip:AddLine("Not loaded yet - Paste logs (or /pl paste) after the PugLogs app looked them up.", 0.6, 0.6, 0.6, true)
+	elseif ns.UnavailableText(entry) then
+		tooltip:AddLine(ns.UnavailableText(entry), 1, 0.7, 0.28, true)
 	elseif entry.hidden then
 		tooltip:AddLine("Logs hidden - they hid their rankings on Warcraft Logs.", 1, 0.7, 0.28, true)
 	elseif entry.none then
@@ -619,7 +698,7 @@ local function AddUnitLines(tooltip)
 			tooltip:AddLine("as " .. entry.runSpec .. (entry.reason and entry.reason ~= "" and (" - " .. entry.reason) or ""), 0.6, 0.6, 0.6)
 		end
 	end
-	if entry and LookedUpText(entry.lookedUpAt) then
+	if entry and not ns.UnavailableText(entry) and LookedUpText(entry.lookedUpAt) then
 		tooltip:AddLine(LookedUpText(entry.lookedUpAt), 0.5, 0.5, 0.5)
 	end
 end

@@ -171,6 +171,10 @@ local function RunText(m)
 	local e = m.entry
 	if not e then
 		return "|cff888888not loaded|r"
+	elseif e.waiting then
+		return "|cffffb347API limit|r"
+	elseif e.failed then
+		return "|cffffb347lookup failed|r"
 	elseif e.hidden then
 		return "|cffffb347logs hidden|r"
 	elseif e.none then

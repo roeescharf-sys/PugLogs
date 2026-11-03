@@ -330,7 +330,7 @@ def level(run):
 
 
 def pick_featured(ranks, key_level, applied_role=""):
-    """The run to show: their best timed run one key below yours (or the closest to it), played
+    """The run to show: their best timed run at or below the key level (or the closest to it), played
     in the role they applied as when they have one (a healing run says little about their DPS)."""
     run, reason = _pick(_in_role(ranks, applied_role) or ranks, key_level)
     if applied_role and spec_role(run.get("spec")) != applied_role:
@@ -354,7 +354,7 @@ def _pick(ranks, key_level):
         return best(ranks), "no timed runs"
     if not key_level:
         return best(timed), "highest timed"
-    target = key_level - 1
+    target = key_level
     below = [r for r in timed if level(r) <= target]
     if below:
         run = best(below)

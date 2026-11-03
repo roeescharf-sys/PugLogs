@@ -36,7 +36,7 @@ local verbose = false       -- /pl test prints each step
 local function CreateQRFrame()
 	local frame = CreateFrame("Frame", "PugLogsQRFrame", UIParent)
 	frame:SetFrameStrata("TOOLTIP")
-	frame:SetFrameLevel(9999)
+	frame:SetFrameLevel(10000) -- the highest: cursor rings (e.g. EllesmereUI's, at 9999) can't cover the code
 	frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, 0)
 	frame:Hide()
 	frame.bg = frame:CreateTexture(nil, "BACKGROUND")
@@ -134,6 +134,8 @@ local function MarkCode(fullName, realm)
 	return saved and MARK_CODES[saved.mark] or ""
 end
 
+-- Your own key's level, if it's for the listed dungeon. The listing title can't be used: addons
+-- only get a placeholder (|K...|k) that WoW swaps for the text when it draws it.
 local function GetListingKeyLevel(dungeon)
 	if dungeon and not dungeon.raid and ns.GetKeystoneDungeon() == dungeon then
 		local ok, level = pcall(C_MythicPlus.GetOwnedKeystoneLevel)
@@ -304,8 +306,14 @@ local function FinishCapture(delivered)
 	end
 	pages, pageIndex = nil, 0
 	if flag == "R" and ns.OnPasteRequestDone then
-		-- Tell the paste box whether its request reached the screenshot folder.
-		C_Timer.After(0, function() pcall(ns.OnPasteRequestDone, delivered) end)
+		-- Tell the paste box whether its request reached the screenshot folder - unless a newer
+		-- request started meanwhile (it reports for itself).
+		local batch = ns.lastPasteRequest
+		C_Timer.After(0, function()
+			if batch == ns.lastPasteRequest then
+				pcall(ns.OnPasteRequestDone, delivered)
+			end
+		end)
 	end
 	if queuedRequest then
 		local flag = queuedRequest

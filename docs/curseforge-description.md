@@ -22,14 +22,15 @@ PugLogs comes in two parts:
 
 ## Warcraft Logs runs for your applicants (with the app)
 
-Hover an applicant and you see **their run in the dungeon you listed, one key level below yours**.
-You list a +20 Temple of Sethraliss, you see their best timed +19 Temple of Sethraliss:
+Hover an applicant and you see **their best timed run in the dungeon you listed, at or below your key
+level**. You list a +20 Temple of Sethraliss, you see their best timed +20 there - or, like here,
+their +19 if they haven't timed a +20:
 
 ```
 PugLogs - Temple of Sethraliss
 +19  31:03 timed        364K DPS (57)
 as Balance
-best timed +19  12 Oct 2026
+best timed +19 - 12 Oct 2026
 Looked up today
 ```
 
@@ -40,7 +41,7 @@ the key for, you see their highest timed run there instead.
   same key level), in Warcraft Logs' colours. In the app you choose per role whether to see DPS,
   HPS or both - a tank's DPS and HPS, for example.
 - **The right run:** runs in the role they applied as come first. You get their best timed run at
-  one below your key; if they have none, the closest timed key below it, then above it; if nothing
+  your key level; if they have none, the closest timed key below it, then above it; if nothing
   is timed, their highest run, marked as over time. The date of the run is shown too.
 - **Warnings:** if they have no runs in the role they applied as, you see another role's run with
   a red warning; a run in another spec of the same role gets an orange one.
