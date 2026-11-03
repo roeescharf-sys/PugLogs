@@ -4,7 +4,7 @@
 ones you'd never invite.**
 
 When you list a key, dozens of players apply. Checking them on Warcraft Logs means finding each
-character page, picking your dungeon and digging for a run at your key level. PugLogs does that for
+character page, picking your dungeon and digging for their best run. PugLogs does that for
 every applicant: hover them and you see their run, or read the whole list in a panel next to the
 Group Finder.
 
@@ -22,35 +22,29 @@ PugLogs comes in two parts:
 
 ## Warcraft Logs runs for your applicants (with the app)
 
-Hover an applicant and you see **their best timed run in the dungeon you listed, at or below your key
-level**. You list a +20 Temple of Sethraliss, you see their best timed +20 there - or, like here,
-their +19 if they haven't timed a +20:
+Hover an applicant and you see **their highest timed run in the dungeon you listed**. You list a
+Temple of Sethraliss, you see their highest timed Temple of Sethraliss:
 
 ```
 PugLogs - Temple of Sethraliss
 +19  31:03 timed        364K DPS (57)
 as Balance
-best timed +19 - 12 Oct 2026
+highest timed - 12 Oct 2026
 Looked up today
 ```
-
-PugLogs reads your key level from the keystone in your bags. If you list a dungeon you don't have
-the key for, you see their highest timed run there instead.
 
 - **DPS, or HPS for healers**, with the **percentile** Warcraft Logs shows on the log (same spec,
   same key level), in Warcraft Logs' colours. In the app you choose per role whether to see DPS,
   HPS or both - a tank's DPS and HPS, for example.
-- **The right run:** runs in the role they applied as come first. You get their best timed run at
-  your key level; if they have none, the closest timed key below it, then above it; if nothing
-  is timed, their highest run, marked as over time. The date of the run is shown too.
+- **The right run:** runs in the role they applied as come first. You get their highest timed run (the
+  best percentile if they timed that level more than once); if nothing is timed, their highest run, marked as over time. The date of the run is shown too.
 - **Warnings:** if they have no runs in the role they applied as, you see another role's run with
   a red warning; a run in another spec of the same role gets an orange one.
 - **"No logs in this dungeon this season"** and **"Logs hidden"** (they hid their rankings on
   Warcraft Logs) are shown as such.
 - **Saved lookups:** every lookup is kept, 1 day by default (up to 365 in the app's Settings).
   Someone who applies again shows their run right away, with no new paste and no API points spent.
-  The tooltip says when they were looked up. Saved runs are per dungeon: after you change key level,
-  Paste logs again to see the run for the new key.
+  The tooltip says when they were looked up. Saved runs are per dungeon.
 - **Look up logs again:** right-click an applicant or group member to fetch their logs fresh, then
   Paste logs again.
 

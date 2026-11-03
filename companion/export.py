@@ -50,7 +50,7 @@ def build(listing, members, results, result_key, request=None, copy_until=0):
             who, str(run.get("key") or 0), "1" if run.get("timed") else "0",
             _num((run.get("duration") or 0) / 1000), _num(run.get("dps")), _num(run.get("percent"), 1),
             "", "", "", "",  # interrupts, dispels, deaths, damage taken: not fetched
-            _clean(result.get("reason", "").replace(", ", " - ")),  # "best timed +19 - 3 Oct 2026"
+            _clean(result.get("reason", "").replace(", ", " - ")),  # "highest timed - 3 Oct 2026"
             _clean(run.get("spec") or ""),
             str(spec_mismatch(m.spec, run.get("spec"))),
             "hps" if run.get("metric") == "hps" else "",  # older addons ignore this field

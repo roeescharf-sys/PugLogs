@@ -424,7 +424,7 @@ def do_lookup(lk, rkey, member, region, encounter_id, key_level):
             return  # filtered out while it was waiting in the queue
         state.results[rkey] = {"status": "loading"}
     try:
-        found = lk.look_up(member, region, encounter_id, key_level)
+        found = lk.look_up(member, region, encounter_id)
         if not found:
             result = {"status": "nodata"}
         elif found.get("hidden"):

@@ -206,8 +206,8 @@ class Lookup:
         main = metrics_for(member)[0]
         return bool((self.cache.players.get(cache_key(member, region, encounter_id, main)) or {}).get("hidden"))
 
-    def look_up(self, member, region, encounter_id, key_level=0):
-        """Returns {"featured", "reason"}: the member's one run to show for this dungeon and key level.
+    def look_up(self, member, region, encounter_id):
+        """Returns {"featured", "reason"}: the member's one run to show for this dungeon.
         None if they have no logs in this dungeon, {"hidden": True} if they hid their logs.
         Only this dungeon (encounter_id) is ever requested."""
         runs = self.player_runs(member, region, encounter_id)
@@ -220,7 +220,7 @@ class Lookup:
         ranks = usable(runs.get(metric))
         if not ranks:
             return None
-        r, reason = pick_featured(ranks, key_level, member.role)
+        r, reason = pick_featured(ranks, member.role)
         start = r.get("startTime")
         if start:
             t = time.localtime(start / 1000)
@@ -230,7 +230,7 @@ class Lookup:
             # The other number of the same run when it's there, else their best one by itself.
             other_ranks = usable(runs.get(other))
             same = [o for o in other_ranks if same_fight(o, r)]
-            o = same[0] if same else (pick_featured(other_ranks, key_level, member.role)[0] if other_ranks else None)
+            o = same[0] if same else (pick_featured(other_ranks, member.role)[0] if other_ranks else None)
             if o:
                 also.append({"metric": other, "amount": o.get("amount"), "percent": percent(o)})
         return {
@@ -329,10 +329,10 @@ def level(run):
     return run.get("bracketData") or 0
 
 
-def pick_featured(ranks, key_level, applied_role=""):
-    """The run to show: their best timed run at or below the key level (or the closest to it), played
-    in the role they applied as when they have one (a healing run says little about their DPS)."""
-    run, reason = _pick(_in_role(ranks, applied_role) or ranks, key_level)
+def pick_featured(ranks, applied_role=""):
+    """The run to show: their highest timed run, played in the role they applied as when they have
+    one (a healing run says little about their DPS)."""
+    run, reason = _pick(_in_role(ranks, applied_role) or ranks)
     if applied_role and spec_role(run.get("spec")) != applied_role:
         reason = f"no logs as {ROLE_NAMES.get(applied_role, applied_role)} - {reason}"
     return run, reason
@@ -342,7 +342,7 @@ def _in_role(ranks, role):
     return [r for r in ranks if spec_role(r.get("spec")) == role] if role else []
 
 
-def _pick(ranks, key_level):
+def _pick(ranks):
     # Runs without a key level can't be compared with your key; use them only if nothing else.
     ranks = [r for r in ranks if level(r)] or ranks
     if not any(level(r) for r in ranks):
@@ -352,17 +352,7 @@ def _pick(ranks, key_level):
     best = lambda runs: max(runs, key=lambda r: (level(r), percent(r) or 0))
     if not timed:
         return best(ranks), "no timed runs"
-    if not key_level:
-        return best(timed), "highest timed"
-    target = key_level
-    below = [r for r in timed if level(r) <= target]
-    if below:
-        run = best(below)
-        return run, ("best timed +%d" % level(run))
-    above = [r for r in timed if level(r) > target]
-    lowest = min(level(r) for r in above)
-    run = best([r for r in above if level(r) == lowest])
-    return run, "closest timed (above your key)"
+    return best(timed), "highest timed"
 
 
 class BudgetError(Exception):

@@ -4,7 +4,7 @@
 ones you'd never invite.**
 
 When you list a key, dozens of players apply. Checking them on Warcraft Logs means finding each
-character page, picking your dungeon and digging for a run at your key level. PugLogs does that for
+character page, picking your dungeon and digging for their best run. PugLogs does that for
 every applicant: hover them and you see their run, or read the whole list in a panel next to the
 Group Finder.
 
@@ -19,8 +19,8 @@ Check logs work without the app.
 ## What it does
 
 **Warcraft Logs runs** (with the app)
-- **Their best timed run in the dungeon you listed, at or below your key level**: you list a +20
-  Murder Row, you see their best timed +20 Murder Row (or +19 if they haven't timed a +20) - in the applicant tooltip, the PugLogs panel and the app
+- **Their highest timed run in the dungeon you listed**: you list a Murder Row, you see their
+  highest timed Murder Row - in the applicant tooltip, the PugLogs panel and the app
   window. Runs in the role they applied as come first; if they have none, another role's run is
   shown with a warning ([which run is shown](#which-run-is-shown)).
 - **DPS, or HPS for healers**, with the percentile Warcraft Logs shows on the log. Per role you
@@ -73,7 +73,7 @@ appears when you point at a player. The window follows your system's light or da
 PugLogs - Murder Row
 +19  31:03 timed        364K DPS (57)
 as Balance
-best timed +19 - 3 Oct 2026
+highest timed - 3 Oct 2026
 Looked up today
 ```
 
@@ -198,12 +198,9 @@ On macOS you can symlink the addon into WoW to edit it in place
 4. **Right-click** any applicant or player → **Check logs** for their Warcraft Logs page.
 
 ### Which run is shown
-For a +20 listing: their best timed **+20** (highest percentile among their +20s - DPS, or HPS for
-healers). If they have no timed +20, the closest lower key; if all their timed runs are higher, the
-closest higher one; if nothing is timed, their highest run, marked "over".
-
-The key level comes from the keystone in your bags, if it's for the listed dungeon. If PugLogs can't
-tell the level (e.g. you listed someone else's key), it shows their highest timed run.
+Their highest timed run in the listed dungeon (highest percentile if they timed that level more
+than once - DPS, or HPS for healers). If nothing is timed, their highest run, marked "over". Your
+own key level doesn't matter.
 
 Only runs in the **role they applied as** are considered (a healing run says little about how
 someone plays DPS). If they have no logs in that role, their run in another role is shown with a
@@ -228,8 +225,7 @@ Settings says (1 day by default). Someone who applies again shows their run righ
 new paste and without spending API points. Tooltips and the window say when a player was looked
 up. To ask Warcraft Logs again anyway: **Look Up Again** next to the player in the app window, or
 **Look up logs again** in their right-click menu in WoW (then Paste logs). Saved runs are per
-dungeon: if you list the same dungeon at another key level, Paste logs to get the run for your new
-key.
+dungeon.
 
 ### Players in your group
 With **Look up the players in my group** (in `/pl opt`, on by default) PugLogs also looks up the
