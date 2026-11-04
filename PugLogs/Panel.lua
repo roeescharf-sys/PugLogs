@@ -166,7 +166,8 @@ local function RoleText(role)
 end
 
 -- "+19 87 350K": key (green timed / red over), percentile in its colour, DPS (or HPS for healers);
--- or why there's no run.
+-- "+20 (+18) 77 210K" when the highest run has no log: the numbers are from the +18; or why
+-- there's no run.
 local function RunText(m)
 	local e = m.entry
 	if not e then
@@ -184,6 +185,12 @@ local function RunText(m)
 		return ("|cffffffff%d/%d|r |cff%s%d|r"):format(e.key or 0, e.seconds or 0, ns.PercentColor(e.percent), math.floor(e.percent or 0))
 	end
 	local key = ("%s+%d|r"):format(e.timed and "|cff4ec36a" or "|cffe0624f", e.key or 0)
+	if e.noLog then
+		if not e.logKey then
+			return key .. " |cff888888no log|r"
+		end
+		key = key .. (" |cff888888(+%d)|r"):format(e.logKey)
+	end
 	local pct = e.percent and ("|cff%s%d|r"):format(ns.PercentColor(e.percent), math.floor(e.percent)) or "-"
 	local dps = e.dps and (" |cffffffff%dK|r%s"):format(math.floor(e.dps / 1000), e.hps and " |cff888888HPS|r" or "") or ""
 	local mark = e.specMismatch == 2 and " |cffff6b5b!|r" or (e.specMismatch == 1 and " |cffffb347*|r" or "")

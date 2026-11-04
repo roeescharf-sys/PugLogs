@@ -5,7 +5,7 @@ Free API client limit: **720 points per hour**.
 | Request | Points | Notes |
 |---|---|---|
 | Leaderboard page (`encounter.characterRankings`) | ~2 | 100 players, each with their best run: key level, time, medal, score, report code + fight ID |
-| One player's runs in one dungeon (`character.encounterRankings`) | ~2 | All their ranked runs incl. DPS |
+| One player's runs in one dungeon (`character.encounterRankings`) | ~2 | `dps`/`hps`: only logged runs. `playerscore`: every run, unlogged ones with `report.fightID` null and no DPS |
 | One run's stats: Summary only | ~2 (2.4-5) | Damage done/taken, deaths, item level - for all 5 players |
 | One run's stats: Summary + Interrupts + Dispels | ~4 | Same request; batching 10 runs per request saves little |
 | Any single `table` request | min 2 | Combine stats into one request |

@@ -38,6 +38,8 @@ Looked up today
   HPS or both - a tank's DPS and HPS, for example.
 - **The right run:** runs in the role they applied as come first. You get their highest timed run (the
   best percentile if they timed that level more than once); if nothing is timed, their highest run, marked as over time. The date of the run is shown too.
+- **Runs without a log:** if nobody logged their highest timed run, you see it marked **no log**,
+  with the numbers of their best logged run under it.
 - **Warnings:** if they have no runs in the role they applied as, you see another role's run with
   a red warning; a run in another spec of the same role gets an orange one.
 - **"No logs in this dungeon this season"** and **"Logs hidden"** (they hid their rankings on
@@ -168,7 +170,7 @@ dungeon (or your raid and difficulty). Press Cmd+C / Ctrl+C and paste it in your
    Finder or use `/pl opt`. Paste logs only shows while they are on.
 
 Then start the app before you list a key. Everyone who uses PugLogs makes their own free key: it
-allows 720 points an hour, and a dungeon lookup costs about 1.3 points per player, so about 500 new
+allows 720 points an hour, and a dungeon lookup costs about 2.6 points per player, so about 250 new
 players an hour. If the hour runs out, lookups pause and continue by themselves when it resets.
 
 ## Commands

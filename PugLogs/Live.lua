@@ -10,6 +10,8 @@
 --            same role, 2 = different role; metric: "hps" = healing per second, else damage;
 --            lookedUpAt: when the app fetched it from Warcraft Logs, Unix time)
 --            [,metric2,amount2,percent2]   (a second number, e.g. a tank's HPS)
+--            [,topKey,topSeconds,topReason]   (their highest timed run has no log; the fields
+--            before it are their best logged run, key 0 if nothing has a log)
 --   "!keep,7" = keep these results for 7 days (the app's "Keep lookups for" setting)
 -- Pasted results are kept per dungeon (PugLogsDB.liveSaved), so a player who applies again
 -- still shows their run without a new paste.
@@ -61,7 +63,8 @@ local function Parse(text)
 			data.keepDays = Num(f[2])
 		elseif who and who ~= "" then
 			local key = Num(f[2]) or 0
-			data.players[who:lower()] = key == 0 and { none = true, hidden = f[3] == "hidden" } or {
+			local topKey = Num(f[19])
+			local player = key == 0 and not topKey and { none = true, hidden = f[3] == "hidden" } or {
 				key = key,
 				timed = f[3] == "1",
 				seconds = Num(f[4]),
@@ -78,6 +81,14 @@ local function Parse(text)
 				lookedUpAt = Num(f[15]),
 				also = f[16] and f[16] ~= "" and { hps = f[16] == "hps", amount = Num(f[17]), percent = Num(f[18]) } or nil,
 			}
+			if topKey then -- key/seconds/timed become the highest run, log* the best logged one
+				player.noLog = true
+				player.logKey = key > 0 and key or nil
+				player.logSeconds, player.logTimed = player.seconds, player.timed
+				player.key, player.seconds, player.timed = topKey, Num(f[20]), true
+				player.reason = f[21]
+			end
+			data.players[who:lower()] = player
 			data.count = data.count + 1
 		end
 	end
@@ -457,6 +468,31 @@ local function AppliedSpecName(applicantID, memberIdx)
 end
 
 -- Which spec the run was played as, standing out when it isn't how they applied.
+local function RunLeftText(key, seconds, timed)
+	local timeText = seconds and ("%d:%02d"):format(math.floor(seconds / 60), seconds % 60) or "-"
+	return ("+%d  %s %s"):format(key, timeText, timed and "|cff4ec36atimed|r" or "|cffe0624fover|r")
+end
+
+-- The run's key and time with its numbers. A run without a log says so, and the numbers go on a
+-- "best log" line under it.
+local function AddRunLines(tooltip, entry)
+	local left = RunLeftText(entry.key, entry.seconds, entry.timed)
+	if entry.noLog then
+		tooltip:AddDoubleLine(left, "|cff888888no log|r", 1, 1, 1, 1, 1, 1)
+		if not entry.logKey then
+			return
+		end
+		left = "best log: " .. RunLeftText(entry.logKey, entry.logSeconds, entry.logTimed)
+	end
+	tooltip:AddDoubleLine(left, ("|cff%s%s %s (%d)|r"):format(PercentColor(entry.percent), FormatNumber(entry.dps),
+		entry.hps and "HPS" or "DPS", math.floor(entry.percent or 0)), 1, 1, 1, 1, 1, 1)
+	local also = entry.also
+	if also and also.amount then
+		tooltip:AddDoubleLine(" ", ("|cff%s%s %s (%d)|r"):format(PercentColor(also.percent),
+			FormatNumber(also.amount), also.hps and "HPS" or "DPS", math.floor(also.percent or 0)), 1, 1, 1, 1, 1, 1)
+	end
+end
+
 local function AddSpecLine(entry, applicantID, memberIdx)
 	if not entry.runSpec or entry.runSpec == "" then
 		return
@@ -630,17 +666,7 @@ local function AddApplicantLines(applicantID, memberIdx)
 			GameTooltip:AddLine("mostly as " .. entry.runSpec, 0.6, 0.6, 0.6)
 		end
 	else
-		local timeText = entry.seconds and ("%d:%02d"):format(math.floor(entry.seconds / 60), entry.seconds % 60) or "-"
-		GameTooltip:AddDoubleLine(
-			("+%d  %s %s"):format(entry.key, timeText, entry.timed and "|cff4ec36atimed|r" or "|cffe0624fover|r"),
-			("|cff%s%s %s (%d)|r"):format(PercentColor(entry.percent), FormatNumber(entry.dps),
-				entry.hps and "HPS" or "DPS", math.floor(entry.percent or 0)),
-			1, 1, 1, 1, 1, 1)
-		local also = entry.also
-		if also and also.amount then
-			GameTooltip:AddDoubleLine(" ", ("|cff%s%s %s (%d)|r"):format(PercentColor(also.percent),
-				FormatNumber(also.amount), also.hps and "HPS" or "DPS", math.floor(also.percent or 0)), 1, 1, 1, 1, 1, 1)
-		end
+		AddRunLines(GameTooltip, entry)
 		AddSpecLine(entry, applicantID, memberIdx)
 		if entry.reason and entry.reason ~= "" then
 			GameTooltip:AddLine(entry.reason, 0.6, 0.6, 0.6)
@@ -683,17 +709,7 @@ local function AddUnitLines(tooltip)
 	elseif entry.none then
 		tooltip:AddLine("No logs in this dungeon this season.", 0.6, 0.6, 0.6)
 	else
-		local timeText = entry.seconds and ("%d:%02d"):format(math.floor(entry.seconds / 60), entry.seconds % 60) or "-"
-		tooltip:AddDoubleLine(
-			("+%d  %s %s"):format(entry.key, timeText, entry.timed and "|cff4ec36atimed|r" or "|cffe0624fover|r"),
-			("|cff%s%s %s (%d)|r"):format(PercentColor(entry.percent), FormatNumber(entry.dps),
-				entry.hps and "HPS" or "DPS", math.floor(entry.percent or 0)),
-			1, 1, 1, 1, 1, 1)
-		local also = entry.also
-		if also and also.amount then
-			tooltip:AddDoubleLine(" ", ("|cff%s%s %s (%d)|r"):format(PercentColor(also.percent),
-				FormatNumber(also.amount), also.hps and "HPS" or "DPS", math.floor(also.percent or 0)), 1, 1, 1, 1, 1, 1)
-		end
+		AddRunLines(tooltip, entry)
 		if entry.runSpec and entry.runSpec ~= "" then
 			tooltip:AddLine("as " .. entry.runSpec .. (entry.reason and entry.reason ~= "" and (" - " .. entry.reason) or ""), 0.6, 0.6, 0.6)
 		end

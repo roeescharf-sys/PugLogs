@@ -389,10 +389,22 @@ function raidTable(m) {
     <div class="reason">${m.lookedUpAt ? `looked up ${lookedUp(m.lookedUpAt)}` : ""}</div>`;
 }
 
-function runTable(m) {
-  const r = m.featured;
-  if (r.raid) return raidTable(m);
+// A timed run nobody logged: Warcraft Logs knows the key and time, but has no numbers for it.
+function topRow(t) {
   return `<div class="run">
+      <span class="key">+${esc(t.key)}</span>
+      <span class="stat"><span class="dot timed" aria-hidden="true"></span>${time(t.duration)} timed</span>
+      <span class="stat">no log</span>
+      <span class="meta">${t.date ? ago(t.date) : ""}</span>
+    </div>`;
+}
+
+function runTable(m) {
+  const r = m.featured, top = m.top;
+  if (r && r.raid) return raidTable(m);
+  const looked = m.lookedUpAt ? ` · looked up ${lookedUp(m.lookedUpAt)}` : "";
+  if (!r) return `${topRow(top)}<div class="reason">${esc(top.reason)}${looked}</div>`;
+  return `${top ? `${topRow(top)}<div class="reason">Best log</div>` : ""}<div class="run">
       <a class="key" href="${esc(r.url)}" target="_blank" rel="noopener" title="Open this log (${r.metric === "hps" ? "Healing" : "Damage Done"})">+${esc(r.key ?? "?")}</a>
       <span class="stat"><span class="dot ${r.timed ? "timed" : "over"}" aria-hidden="true"></span>${time(r.duration)} ${r.timed ? "timed" : "over time"}</span>
       <span class="stat parse ${pclass(r.percent)}"><span class="dot" aria-hidden="true"></span><b>${num(r.dps)}</b> ${r.metric === "hps" ? "HPS" : "DPS"}${r.percent != null ? ` · <b>${Math.floor(r.percent)}</b> parse` : ""}</span>
@@ -405,7 +417,7 @@ function runTable(m) {
       : m.specMismatch === 1
       ? `<div class="specWarn specOther">${icon("i-warn")}<span>This run was as ${esc(r.spec)} - they applied as ${esc(m.spec)}.</span></div>`
       : ""}
-    <div class="reason">${esc(m.reason)}${m.lookedUpAt ? ` · looked up ${lookedUp(m.lookedUpAt)}` : ""}</div>`;
+    <div class="reason">${esc(top ? top.reason : m.reason)}${looked}</div>`;
 }
 
 function memberHtml(m, i, all) {

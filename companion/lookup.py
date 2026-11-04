@@ -1,7 +1,8 @@
 """Looks up applicants on Warcraft Logs: their best run in the listed dungeon.
 
 Each new player costs one request: ~1.3 API points per number fetched (DPS, HPS). Which numbers
-each role gets is a setting (by default healers HPS, everyone else DPS). Nothing else is fetched.
+each role gets is a setting (by default healers HPS, everyone else DPS). Dungeons also fetch the
+score list: DPS and HPS rankings only hold logged runs, the score list has every run.
 Checking the remaining points also costs 1 point, so that is done rarely and spending is
 counted locally in between.
 """
@@ -26,6 +27,7 @@ LOOKUP_COST = 1.1         # measured: ~1 point per player lookup
 RAID_COST = 5.0           # measured: ~5 points per player and number for a whole raid
 TIMED_MEDALS = {"gold", "silver", "bronze"}
 CACHE_VERSION = 3         # bump when the stored run data changes meaning
+SCORE = "playerscore"     # the ranking that also lists runs nobody logged
 
 
 def percent(run):
@@ -93,7 +95,7 @@ def metrics_for(member):
 
 def cache_key(member, region, encounter_id, metric="dps"):
     # Healing rankings are stored apart from damage rankings (DPS keys keep the old form).
-    suffix = "-hps" if metric == "hps" else ""
+    suffix = {"hps": "-hps", SCORE: "-score"}.get(metric, "")
     return f"{member.key}-{region}-{encounter_id}{suffix}"
 
 
@@ -163,7 +165,7 @@ class Lookup:
         """{metric: ranks} for the numbers wanted for this member; saved ones are free, the
         missing ones are fetched together in one request."""
         runs, missing = {}, []
-        for metric in metrics_for(member):
+        for metric in metrics_for(member) + ([] if raid_target(encounter_id) else [SCORE]):
             cached = self.cache.players.get(cache_key(member, region, encounter_id, metric))
             if cached and time.time() - cached["at"] < PLAYER_TTL:
                 runs[metric] = cached["ranks"]
@@ -192,7 +194,7 @@ class Lookup:
 
     def forget(self, member, region, encounter_id):
         """Drops a player's saved lookup, so the next one asks Warcraft Logs again."""
-        for metric in ("dps", "hps"):
+        for metric in ("dps", "hps", SCORE):
             self.cache.players.pop(cache_key(member, region, encounter_id, metric), None)
 
     def looked_up_at(self, member, region, encounter_id):
@@ -207,8 +209,9 @@ class Lookup:
         return bool((self.cache.players.get(cache_key(member, region, encounter_id, main)) or {}).get("hidden"))
 
     def look_up(self, member, region, encounter_id):
-        """Returns {"featured", "reason"}: the member's one run to show for this dungeon.
-        None if they have no logs in this dungeon, {"hidden": True} if they hid their logs.
+        """Returns {"featured", "reason"}: the member's best logged run in this dungeon, plus "top"
+        when their highest timed run has no log (featured is None if nothing has a log).
+        None if they have no runs in this dungeon, {"hidden": True} if they hid their logs.
         Only this dungeon (encounter_id) is ever requested."""
         runs = self.player_runs(member, region, encounter_id)
         if self.is_hidden(member, region, encounter_id):
@@ -218,13 +221,22 @@ class Lookup:
             return raid_summary(member, runs, metrics, region, encounter_id)
         metric = metrics[0]
         ranks = usable(runs.get(metric))
-        if not ranks:
+        r, reason = pick_featured(ranks, member.role) if ranks else (None, "")
+        top = higher_run(runs.get(SCORE), r, member.role)
+        if not r and not top:
             return None
-        r, reason = pick_featured(ranks, member.role)
-        start = r.get("startTime")
-        if start:
-            t = time.localtime(start / 1000)
-            reason += ", %d %s %d" % (t.tm_mday, time.strftime("%b", t), t.tm_year)
+        result = {"featured": None, "reason": ""}
+        if top:
+            result["top"] = {
+                "key": level(top),
+                "duration": top.get("duration"),
+                "spec": spec_display(top.get("spec")),
+                "date": top.get("startTime"),
+                "reason": dated("highest timed", top),
+            }
+        if not r:
+            return result
+        reason = dated(reason, r)
         also = []
         for other in metrics[1:]:
             # The other number of the same run when it's there, else their best one by itself.
@@ -234,6 +246,7 @@ class Lookup:
             if o:
                 also.append({"metric": other, "amount": o.get("amount"), "percent": percent(o)})
         return {
+            **result,
             "featured": {
                 "key": r.get("bracketData"),
                 "duration": r.get("duration"),
@@ -327,6 +340,29 @@ def spec_mismatch(applied_spec, run_spec):
 def level(run):
     """A run's key level. Warcraft Logs sometimes sends it as null, so treat that as 0."""
     return run.get("bracketData") or 0
+
+
+def dated(reason, run):
+    """The reason text with the run's date: "highest timed, 3 Oct 2026"."""
+    start = run.get("startTime")
+    if not start:
+        return reason
+    t = time.localtime(start / 1000)
+    return reason + ", %d %s %d" % (t.tm_mday, time.strftime("%b", t), t.tm_year)
+
+
+def higher_run(score_ranks, logged, role=""):
+    """Their highest timed run in the role they applied as, if it beats the logged run (a timed
+    key above it, or the logged run is over time or in another role). Else None."""
+    timed = [r for r in score_ranks or [] if level(r) and r.get("medal") in TIMED_MEDALS]
+    timed = _in_role(timed, role) if role else timed
+    if not timed:
+        return None
+    top = max(timed, key=level)
+    if (not logged or logged.get("medal") not in TIMED_MEDALS or level(top) > level(logged)
+            or (role and not _in_role([logged], role))):
+        return top
+    return None
 
 
 def pick_featured(ranks, applied_role=""):

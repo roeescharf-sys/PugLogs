@@ -124,7 +124,8 @@ uses it to identify itself with an API client (a "key"). It is **free** and take
 - **Each person needs their own key.** Every key has an hourly budget (720 points per hour on a
   free key). Sharing one key means sharing one budget, and Warcraft Logs' terms don't allow it.
 - **How far it goes:** a dungeon lookup costs about **1.3 points** per player and number (DPS or
-  HPS), so a free key covers roughly **500 new applicants per hour** with one number. Lookups are
+  HPS), plus the same again for their run list, so a free key covers roughly **250 new applicants
+  per hour** with one number. Lookups are
   kept for **Keep lookups for** in the app's Settings (1 day by default), so players who apply
   again cost nothing, and filtered-out applicants are never looked up. If the hour runs out,
   lookups pause and continue automatically when it resets.
@@ -201,6 +202,17 @@ On macOS you can symlink the addon into WoW to edit it in place
 Their highest timed run in the listed dungeon (highest percentile if they timed that level more
 than once - DPS, or HPS for healers). If nothing is timed, their highest run, marked "over". Your
 own key level doesn't matter.
+
+Not every run has a log. If nobody logged their highest timed run, Warcraft Logs still knows the key
+and time but has no DPS for it, so you see that run with **no log**, and the numbers of their best
+logged run under it:
+
+```
++20  28:38 timed        no log
+best log: +18  29:01 timed        210K DPS (77)
+```
+
+In the panel that reads `+20 (+18) 77 210K`: the numbers are from the +18.
 
 Only runs in the **role they applied as** are considered (a healing run says little about how
 someone plays DPS). If they have no logs in that role, their run in another role is shown with a
