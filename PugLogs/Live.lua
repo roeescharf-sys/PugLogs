@@ -7,11 +7,15 @@
 --   PLR1;encounterID;keyLevel;dungeonName;record;record;...
 --   record = name-realmslug,key,timed,seconds,dps,percent,interrupts,dispels,deaths,damageTaken,reason,
 --            runSpec,specMismatch,metric,lookedUpAt   (specMismatch: 0 = same spec, 1 = other spec
---            same role, 2 = different role; metric: "hps" = healing per second, else damage;
+--            same role, 2 = different role; metric: "hps" = healing per second, "bossdps" = damage
+--            to bosses, else damage;
 --            lookedUpAt: when the app fetched it from Warcraft Logs, Unix time)
 --            [,metric2,amount2,percent2]   (a second number, e.g. a tank's HPS)
 --            [,topKey,topSeconds,topReason]   (their highest timed run has no log; the fields
 --            before it are their best logged run, key 0 if nothing has a log)
+--            [,metric3,amount3,percent3]   (fields 22-24: a third number, e.g. Boss DPS)
+--            [,overKey,overSeconds,overAmount,overPercent,overReason]   (fields 25-29: their highest
+--            run was over time, above the run shown; amount/percent empty when it has no log)
 --   "!keep,7" = keep these results for 7 days (the app's "Keep lookups for" setting)
 -- Pasted results are kept per dungeon (PugLogsDB.liveSaved), so a player who applies again
 -- still shows their run without a new paste.
@@ -20,6 +24,8 @@
 --   "!pending,N[,copyUntil,who:waiting,who:error,...]" = N applicants still being looked up; the app
 --   copies again as they finish until copyUntil (Unix time); players not looked up yet because of
 --   Warcraft Logs' hourly limit ("waiting") or a failed lookup ("error"). Older addons read only N.
+--   "retry:<unix time>" among them = when the app looks up the waiting ones; "off:who" = not looked
+--   up (nothing ticked for their role in the app's Settings).
 local _, ns = ...
 
 local MAGIC = "PLR1"
@@ -51,10 +57,18 @@ local function Parse(text)
 		if who == "!pending" then
 			data.pending = Num(f[2]) or 0 -- applicants the companion was still looking up
 			data.copyUntil = Num(f[3]) -- older apps don't send it (they don't keep copying)
+			local retryAt
+			for i = 4, #f do
+				retryAt = retryAt or Num(f[i]:match("^retry:(%d+)$"))
+			end
 			for i = 4, #f do
 				local name, status = f[i]:match("^(.+):(%a+)$")
-				if name then
-					data.players[name:lower()] = { none = true, waiting = status == "waiting" or nil, failed = status == "error" or nil }
+				local off = f[i]:match("^off:(.+)$")
+				if off then
+					data.players[off:lower()] = { none = true, off = true }
+				elseif name then
+					data.players[name:lower()] = { none = true, waiting = status == "waiting" or nil, failed = status == "error" or nil,
+						retryAt = status == "waiting" and retryAt or nil }
 				end
 			end
 		elseif who == "!req" then
@@ -78,8 +92,10 @@ local function Parse(text)
 				runSpec = f[12],
 				specMismatch = Num(f[13]) or 0,
 				hps = f[14] == "hps", -- the amount is healing per second (healers)
+				boss = f[14] == "bossdps", -- the amount is damage to bosses per second
 				lookedUpAt = Num(f[15]),
-				also = f[16] and f[16] ~= "" and { hps = f[16] == "hps", amount = Num(f[17]), percent = Num(f[18]) } or nil,
+				also = f[16] and f[16] ~= "" and { hps = f[16] == "hps", boss = f[16] == "bossdps", amount = Num(f[17]), percent = Num(f[18]) } or nil,
+				also2 = f[22] and f[22] ~= "" and { hps = f[22] == "hps", boss = f[22] == "bossdps", amount = Num(f[23]), percent = Num(f[24]) } or nil,
 			}
 			if topKey then -- key/seconds/timed become the highest run, log* the best logged one
 				player.noLog = true
@@ -87,6 +103,9 @@ local function Parse(text)
 				player.logSeconds, player.logTimed = player.seconds, player.timed
 				player.key, player.seconds, player.timed = topKey, Num(f[20]), true
 				player.reason = f[21]
+			end
+			if Num(f[25]) and not player.none then
+				player.over = { key = Num(f[25]), seconds = Num(f[26]), amount = Num(f[27]), percent = Num(f[28]), reason = f[29] }
 			end
 			data.players[who:lower()] = player
 			data.count = data.count + 1
@@ -476,6 +495,12 @@ end
 -- The run's key and time with its numbers. A run without a log says so, and the numbers go on a
 -- "best log" line under it.
 local function AddRunLines(tooltip, entry)
+	local over = entry.over -- their highest run, over time: a red line above the run shown
+	if over and over.key then
+		tooltip:AddDoubleLine(RunLeftText(over.key, over.seconds, false), over.amount
+			and ("|cff%s%s %s (%d)|r"):format(PercentColor(over.percent), FormatNumber(over.amount), ns.MetricName(entry),
+				math.floor(over.percent or 0)) or "|cff888888no log|r", 1, 1, 1, 1, 1, 1)
+	end
 	local left = RunLeftText(entry.key, entry.seconds, entry.timed)
 	if entry.noLog then
 		tooltip:AddDoubleLine(left, "|cff888888no log|r", 1, 1, 1, 1, 1, 1)
@@ -485,11 +510,12 @@ local function AddRunLines(tooltip, entry)
 		left = "best log: " .. RunLeftText(entry.logKey, entry.logSeconds, entry.logTimed)
 	end
 	tooltip:AddDoubleLine(left, ("|cff%s%s %s (%d)|r"):format(PercentColor(entry.percent), FormatNumber(entry.dps),
-		entry.hps and "HPS" or "DPS", math.floor(entry.percent or 0)), 1, 1, 1, 1, 1, 1)
-	local also = entry.also
-	if also and also.amount then
-		tooltip:AddDoubleLine(" ", ("|cff%s%s %s (%d)|r"):format(PercentColor(also.percent),
-			FormatNumber(also.amount), also.hps and "HPS" or "DPS", math.floor(also.percent or 0)), 1, 1, 1, 1, 1, 1)
+		ns.MetricName(entry), math.floor(entry.percent or 0)), 1, 1, 1, 1, 1, 1)
+	for _, also in ipairs({ entry.also or false, entry.also2 or false }) do
+		if also and also.amount then
+			tooltip:AddDoubleLine(" ", ("|cff%s%s %s (%d)|r"):format(PercentColor(also.percent),
+				FormatNumber(also.amount), ns.MetricName(also), math.floor(also.percent or 0)), 1, 1, 1, 1, 1, 1)
+		end
 	end
 end
 
@@ -530,7 +556,7 @@ function ns.RememberResults(data)
 		entry.raid = data.encounterID < 0 or nil -- raid results (see RaidText)
 		local old = bucket[who]
 		-- "Not looked up yet" never replaces a run we already have.
-		if not ((entry.waiting or entry.failed) and old and not (old.waiting or old.failed)) then
+		if not ((entry.waiting or entry.failed or entry.off) and old and not (old.waiting or old.failed or old.off)) then
 			bucket[who] = entry
 		end
 	end
@@ -563,7 +589,11 @@ function ns.LiveEntry(fullName, dungeon)
 	if entry and (entry.lookedUpAt or 0) < time() - KeepSeconds() then
 		return nil -- older than the app's "Keep lookups for"
 	end
-	if entry and (entry.waiting or entry.failed) and entry.lookedUpAt < time() - 600 then
+	if entry and entry.waiting and entry.retryAt then
+		if time() > entry.retryAt + 120 then
+			return nil -- looked up by now: paste again for the result
+		end
+	elseif entry and (entry.waiting or entry.failed) and (entry.lookedUpAt or 0) < time() - 600 then
 		return nil -- "not looked up yet" is only news for a few minutes
 	end
 	return entry
@@ -571,22 +601,38 @@ end
 
 -- Why a player has no run yet, when the app couldn't look them up (nil otherwise).
 function ns.UnavailableText(entry)
-	if entry.waiting then
-		return "Warcraft Logs' hourly limit is reached - the PugLogs app looks them up after the reset. Paste logs again then."
+	if entry.off then
+		return "Not looked up - their role is turned off in the PugLogs app's Settings."
+	elseif entry.waiting then
+		local at = entry.retryAt and date("%H:%M", entry.retryAt)
+		return at and ("Warcraft Logs' hourly limit is used up - the PugLogs app looks them up at %s. Paste logs again then."):format(at)
+			or "Warcraft Logs' hourly limit is used up - the PugLogs app looks them up after the reset. Paste logs again then."
 	elseif entry.failed then
 		return "The PugLogs app couldn't look them up - it tries again in a minute. Paste logs again then."
 	end
 end
 
--- The damage per second of a player's run, whichever of the numbers it is (nil if only HPS).
+-- "DPS", "HPS" or "Boss DPS": which number an entry (or one of its extra numbers) holds.
+function ns.MetricName(t)
+	return t.hps and "HPS" or (t.boss and "Boss DPS" or "DPS")
+end
+
+-- The damage per second of a player's run, whichever of the numbers it is (nil if only HPS);
+-- damage to bosses only when there's no overall damage.
 function ns.EntryDamage(entry)
 	if not entry or entry.raid then
 		return nil -- raid results are percentiles, not damage
-	elseif not entry.hps then
-		return entry.dps
-	elseif entry.also and not entry.also.hps then
-		return entry.also.amount
 	end
+	local boss
+	for _, t in ipairs({ { hps = entry.hps, boss = entry.boss, amount = entry.dps }, entry.also or {}, entry.also2 or {} }) do
+		if t.amount and not t.hps then
+			if not t.boss then
+				return t.amount
+			end
+			boss = boss or t.amount
+		end
+	end
+	return boss
 end
 
 -- "Look up again" (right-click menu): forget the saved result and ask the app for a fresh one.
@@ -654,13 +700,15 @@ local function AddApplicantLines(applicantID, memberIdx)
 		GameTooltip:AddLine(entry.raid and "No kills at this difficulty yet." or "No logs in this dungeon this season.", 0.6, 0.6, 0.6)
 	elseif entry.raid then
 		-- Raid: bosses killed at this difficulty, and their average percentile (best and median).
-		local function Line(left, best, median, hps)
-			GameTooltip:AddDoubleLine(left, ("|cff%s%s %d|r (median %d)"):format(PercentColor(best), hps and "HPS" or "DPS",
+		local function Line(left, best, median, t)
+			GameTooltip:AddDoubleLine(left, ("|cff%s%s %d|r (median %d)"):format(PercentColor(best), ns.MetricName(t),
 				math.floor(best or 0), math.floor(median or 0)), 1, 1, 1, 1, 1, 1)
 		end
-		Line(("%d/%d bosses killed"):format(entry.key or 0, entry.seconds or 0), entry.percent, entry.dps, entry.hps)
-		if entry.also and entry.also.percent then
-			Line(" ", entry.also.percent, entry.also.amount, entry.also.hps)
+		Line(("%d/%d bosses killed"):format(entry.key or 0, entry.seconds or 0), entry.percent, entry.dps, entry)
+		for _, also in ipairs({ entry.also or false, entry.also2 or false }) do
+			if also and also.percent then
+				Line(" ", also.percent, also.amount, also)
+			end
 		end
 		if entry.runSpec and entry.runSpec ~= "" then
 			GameTooltip:AddLine("mostly as " .. entry.runSpec, 0.6, 0.6, 0.6)

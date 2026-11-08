@@ -165,15 +165,18 @@ local function RoleText(role)
 	return role and role:sub(1, 1) or "?"
 end
 
--- "+19 87 350K": key (green timed / red over), percentile in its colour, DPS (or HPS for healers);
--- "+20 (+18) 77 210K" when the highest run has no log: the numbers are from the +18; or why
--- there's no run.
+-- "+19 87 350K": key (green timed / red over), percentile in its colour, DPS (or HPS for healers,
+-- "Boss" after it when the number is damage to bosses);
+-- "+20 (+18) 77 210K" when the highest run has no log: the numbers are from the +18; a red "+21"
+-- in front when their highest run was over time; or why there's no run.
 local function RunText(m)
 	local e = m.entry
 	if not e then
 		return "|cff888888not loaded|r"
+	elseif e.off then
+		return "|cff888888off|r"
 	elseif e.waiting then
-		return "|cffffb347API limit|r"
+		return e.retryAt and ("|cffffb347wait %s|r"):format(date("%H:%M", e.retryAt)) or "|cffffb347API limit|r"
 	elseif e.failed then
 		return "|cffffb347lookup failed|r"
 	elseif e.hidden then
@@ -184,7 +187,8 @@ local function RunText(m)
 	if e.raid then -- "7/10 89": bosses killed, best average percentile
 		return ("|cffffffff%d/%d|r |cff%s%d|r"):format(e.key or 0, e.seconds or 0, ns.PercentColor(e.percent), math.floor(e.percent or 0))
 	end
-	local key = ("%s+%d|r"):format(e.timed and "|cff4ec36a" or "|cffe0624f", e.key or 0)
+	local over = e.over and e.over.key and ("|cffe0624f+%d|r "):format(e.over.key) or ""
+	local key = over .. ("%s+%d|r"):format(e.timed and "|cff4ec36a" or "|cffe0624f", e.key or 0)
 	if e.noLog then
 		if not e.logKey then
 			return key .. " |cff888888no log|r"
@@ -192,7 +196,7 @@ local function RunText(m)
 		key = key .. (" |cff888888(+%d)|r"):format(e.logKey)
 	end
 	local pct = e.percent and ("|cff%s%d|r"):format(ns.PercentColor(e.percent), math.floor(e.percent)) or "-"
-	local dps = e.dps and (" |cffffffff%dK|r%s"):format(math.floor(e.dps / 1000), e.hps and " |cff888888HPS|r" or "") or ""
+	local dps = e.dps and (" |cffffffff%dK|r%s"):format(math.floor(e.dps / 1000), e.hps and " |cff888888HPS|r" or (e.boss and " |cff888888Boss|r" or "")) or ""
 	local mark = e.specMismatch == 2 and " |cffff6b5b!|r" or (e.specMismatch == 1 and " |cffffb347*|r" or "")
 	return key .. " " .. pct .. dps .. mark
 end
