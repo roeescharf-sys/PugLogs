@@ -138,7 +138,8 @@ class State:
                 "listing": self.listing,
                 "updatedAt": self.updated_at,
                 "applications": [{"id": k, "members": v} for k, v in applications.items()],
-                "rate": _lookup.estimated_rate() if _lookup else self.rate,
+                "rate": dict(_lookup.estimated_rate(), playersLeft=_lookup.players_left(
+                    bool(lookup.raid_target((self.listing or {}).get("encounterId") or 0)))) if _lookup else self.rate,
                 "filters": self.filters,
                 "specs": [{"class": c, "name": payload.CLASS_NAMES[c], "specs": names}
                           for c, names in payload.SPECS.items()],
@@ -191,7 +192,7 @@ def connection_status():
 
 def result_key(member, encounter_id, key_level):
     # The featured run depends on your key level, the role they applied as and the numbers
-    # wanted for that role (DPS/HPS).
+    # wanted for that role (DPS/HPS/Boss DPS; none = not looked up).
     return f"{member.key}:{encounter_id}:{key_level}:{member.role}:{'+'.join(lookup.metrics_for(member))}"
 
 
@@ -258,6 +259,9 @@ def on_page(page):
         with state.lock:
             if page.encounter_id >= 0 and filter_reason(m, state.filters):  # (filters are for Mythic+)
                 state.results[rkey] = {"status": "skipped"}  # hidden, never looked up
+                continue
+            if not lookup.metrics_for(m):  # nothing ticked for their role in Settings
+                state.results[rkey] = {"status": "off"}
                 continue
             state.results[rkey] = {"status": "pending"}
         queue_job(1, ("lookup", rkey, m, page.region, page.encounter_id, page.key_level))
@@ -406,6 +410,11 @@ def set_filters(new):
     return filters
 
 
+def reset_at(lk):
+    """When Warcraft Logs' hourly meters reset (a few seconds after, to be safe)."""
+    return time.time() + (lk.estimated_rate().get("pointsResetIn") or 300) + 5
+
+
 def describe_error(e):
     if isinstance(e, lookup.BudgetError):
         return "Hourly API limit nearly used up - try again later"
@@ -422,7 +431,11 @@ def do_lookup(lk, rkey, member, region, encounter_id, key_level):
     with state.lock:
         if (state.results.get(rkey) or {}).get("status") == "skipped":
             return  # filtered out while it was waiting in the queue
-        state.results[rkey] = {"status": "loading"}
+        if not lookup.metrics_for(member):  # their role was turned off in Settings meanwhile
+            state.results[rkey] = {"status": "off"}
+            return
+        if (state.results.get(rkey) or {}).get("status") != "done":  # a refill keeps showing the result
+            state.results[rkey] = {"status": "loading"}
     try:
         found = lk.look_up(member, region, encounter_id)
         if not found:
@@ -431,14 +444,19 @@ def do_lookup(lk, rkey, member, region, encounter_id, key_level):
             result = {"status": "hidden"}
         else:
             result = {"status": "done", "playerName": member.name, **found}
+            if found.get("partial"):  # shown now; the numbers left out are fetched after the reset
+                with state.lock:
+                    state.waiting[rkey] = (reset_at(lk), ("lookup", rkey, member, region, encounter_id, key_level))
         result["lookedUpAt"] = lk.looked_up_at(member, region, encounter_id) or time.time()
-    except (lookup.BudgetError, wcl.RateLimited) as e:
+    except (lookup.BudgetError, wcl.RateLimited, wcl.DatabaseLimit) as e:
         # Out of API points (or briefly refused): wait, then look them up automatically.
-        wait = 60 if isinstance(e, wcl.RateLimited) else (lk.estimated_rate().get("pointsResetIn") or 300) + 5
-        retry_at = time.time() + wait
-        result = {"status": "waiting", "retryAt": retry_at}
+        retry_at = time.time() + 60 if isinstance(e, wcl.RateLimited) else reset_at(lk)
+        why = "busy" if isinstance(e, wcl.RateLimited) else getattr(e, "kind", "database")
+        result = {"status": "waiting", "retryAt": retry_at, "why": why}
         with state.lock:
             state.waiting[rkey] = (retry_at, ("lookup", rkey, member, region, encounter_id, key_level))
+            if (state.results.get(rkey) or {}).get("status") == "done":
+                return  # a refill: keep showing what we have, try again after the reset
     except Exception as e:
         if not isinstance(e, wcl.WCLError):  # Warcraft Logs' own errors are expected; bugs aren't
             report.record(f"looking up {member.name}-{member.realm_slug} "
@@ -459,7 +477,8 @@ def report_context():
         f"Listing: {lst.get('dungeon') or 'none'}" + (f" +{lst['key']}" if lst.get("key") else "")
         + f" (region {lst.get('region', '?')})",
         f"Lookups: {dict(statuses) or 'none'}",
-        f"API: {rate.get('pointsSpentThisHour', '?')}/{rate.get('limitPerHour', '?')} points this hour",
+        f"API: {rate.get('pointsSpentThisHour', '?')}/{rate.get('limitPerHour', '?')} points this hour, "
+        f"{rate.get('databasePointsSpentThisHour', '?')}/{rate.get('databaseLimitPerHour', '?')} database points",
     ]
     return context, messages
 
@@ -512,7 +531,7 @@ def retry_waiting():
                        for m in state.members}
             for k, _ in due:
                 del state.waiting[k]
-                if k in current:
+                if k in current and (state.results.get(k) or {}).get("status") != "done":
                     state.results[k] = {"status": "pending"}
         for k, job in due:
             if k in current:  # skip applicants who are gone

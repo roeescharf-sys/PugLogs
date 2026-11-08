@@ -217,8 +217,8 @@
     <span id="listing" role="status">Waiting for the addon...</span>
     <span id="updated"></span>
     <span id="conn" class="conn" role="status" hidden></span>
-    <span id="rate" hidden title="Warcraft Logs API points used this hour, and when the hour resets">
-      API <span id="rateText"></span> <span class="meter" id="meter" aria-hidden="true"><div></div></span> <span id="resetIn"></span>
+    <span id="rate" hidden>
+      <span id="rateText"></span> <span class="meter" id="meter" aria-hidden="true"><div></div></span> <span id="resetIn"></span>
     </span>
   </div>
   <div class="copy">
@@ -265,7 +265,13 @@
       <label class="toggle"><input type="checkbox" data-metric="hps" data-mrole="HEALER"> Healers</label>
       <label class="toggle"><input type="checkbox" data-metric="hps" data-mrole="DAMAGER"> DPS</label>
     </div>
-    <p class="meta note">Each number costs about 1.3 Warcraft Logs API points per player. A role needs at least one of the two.</p>
+    <div class="row">
+      <span class="meta rowLabel" title="Damage done to bosses only, with its own percentile">Look up Boss DPS for</span>
+      <label class="toggle"><input type="checkbox" data-metric="bossdps" data-mrole="TANK"> Tanks</label>
+      <label class="toggle"><input type="checkbox" data-metric="bossdps" data-mrole="HEALER"> Healers</label>
+      <label class="toggle"><input type="checkbox" data-metric="bossdps" data-mrole="DAMAGER"> DPS</label>
+    </div>
+    <p class="meta note">Each number costs about 1.3 Warcraft Logs API points per player. A role with nothing ticked isn't looked up. Boss DPS counts only damage done to bosses.</p>
     <div class="row">
       <span class="meta rowLabel">Show</span>
       <label class="toggle" title="Show class colours on the names instead of as dots"><input type="checkbox" id="nameColors"> Coloured names</label>
@@ -376,8 +382,10 @@ const icon = id => `<svg class="note-icon" aria-hidden="true"><use href="#${id}"
 
 const lookedUp = t => { const d = Math.floor((Date.now() / 1000 - t) / 86400); return d <= 0 ? "today" : d === 1 ? "yesterday" : `${d} days ago`; };
 
+const unit = x => x === "hps" ? "HPS" : x === "bossdps" ? "Boss DPS" : "DPS";
+
 function raidTable(m) {
-  const r = m.featured, unit = x => x === "hps" ? "HPS" : "DPS";
+  const r = m.featured;
   const avg = (metric, best, median) => `<span class="stat parse ${pclass(best)}"><span class="dot" aria-hidden="true"></span>${unit(metric)} average <b>${Math.floor(best ?? 0)}</b> best · ${Math.floor(median ?? 0)} median</span>`;
   return `<div class="run">
       <a class="key" href="${esc(r.url)}" target="_blank" rel="noopener" title="Open their raid page">${r.kills}/${r.bosses}</a>
@@ -399,16 +407,29 @@ function topRow(t) {
     </div>`;
 }
 
+// Their highest run was over time, above the run shown: a red row on top, with its numbers if it has a log.
+function overRow(o) {
+  if (!o) return "";
+  const key = o.url ? `<a class="key" href="${esc(o.url)}" target="_blank" rel="noopener" title="Open this log">+${esc(o.key)}</a>` : `<span class="key">+${esc(o.key)}</span>`;
+  return `<div class="run">
+      ${key}
+      <span class="stat"><span class="dot over" aria-hidden="true"></span>${time(o.duration)} over time</span>
+      ${o.amount != null ? `<span class="stat parse ${pclass(o.percent)}"><span class="dot" aria-hidden="true"></span><b>${num(o.amount)}</b> ${unit(o.metric)}${o.percent != null ? ` · <b>${Math.floor(o.percent)}</b> parse` : ""}</span>` : `<span class="stat">no log</span>`}
+      <span class="meta">${o.date ? ago(o.date) : ""}</span>
+    </div>
+    <div class="reason">${esc(o.reason)}</div>`;
+}
+
 function runTable(m) {
   const r = m.featured, top = m.top;
   if (r && r.raid) return raidTable(m);
   const looked = m.lookedUpAt ? ` · looked up ${lookedUp(m.lookedUpAt)}` : "";
-  if (!r) return `${topRow(top)}<div class="reason">${esc(top.reason)}${looked}</div>`;
-  return `${top ? `${topRow(top)}<div class="reason">Best log</div>` : ""}<div class="run">
+  if (!r) return `${overRow(m.over)}${topRow(top)}<div class="reason">${esc(top.reason)}${looked}</div>`;
+  return `${overRow(m.over)}${top ? `${topRow(top)}<div class="reason">Best log</div>` : ""}<div class="run">
       <a class="key" href="${esc(r.url)}" target="_blank" rel="noopener" title="Open this log (${r.metric === "hps" ? "Healing" : "Damage Done"})">+${esc(r.key ?? "?")}</a>
       <span class="stat"><span class="dot ${r.timed ? "timed" : "over"}" aria-hidden="true"></span>${time(r.duration)} ${r.timed ? "timed" : "over time"}</span>
-      <span class="stat parse ${pclass(r.percent)}"><span class="dot" aria-hidden="true"></span><b>${num(r.dps)}</b> ${r.metric === "hps" ? "HPS" : "DPS"}${r.percent != null ? ` · <b>${Math.floor(r.percent)}</b> parse` : ""}</span>
-      ${(r.also || []).map(a => `<span class="stat parse ${pclass(a.percent)}"><span class="dot" aria-hidden="true"></span><b>${num(a.amount)}</b> ${a.metric === "hps" ? "HPS" : "DPS"}${a.percent != null ? ` · <b>${Math.floor(a.percent)}</b> parse` : ""}</span>`).join("")}
+      <span class="stat parse ${pclass(r.percent)}"><span class="dot" aria-hidden="true"></span><b>${num(r.dps)}</b> ${unit(r.metric)}${r.percent != null ? ` · <b>${Math.floor(r.percent)}</b> parse` : ""}</span>
+      ${(r.also || []).map(a => `<span class="stat parse ${pclass(a.percent)}"><span class="dot" aria-hidden="true"></span><b>${num(a.amount)}</b> ${unit(a.metric)}${a.percent != null ? ` · <b>${Math.floor(a.percent)}</b> parse` : ""}</span>`).join("")}
       <span class="stat ${m.specMismatch === 2 ? "specRole" : m.specMismatch === 1 ? "specOther" : ""}">${specText(m, r.spec)}</span>
       <span class="meta">${r.date ? ago(r.date) : ""}</span>
     </div>
@@ -425,9 +446,13 @@ function memberHtml(m, i, all) {
   let body;
   if (m.status === "done") body = runTable(m);
   else if (m.status === "nodata") body = `<div class="status">${lastListing.raid ? "No kills at this difficulty yet." : "No logs in this dungeon this season."}</div>`;
+  else if (m.status === "off") body = `<div class="status">Not looked up - nothing is ticked for ${({ TANK: "tanks", HEALER: "healers", DAMAGER: "DPS players" })[m.role] || "this role"} in Settings.</div>`;
   else if (m.status === "hidden") body = `<div class="status">Logs hidden - this player hid their rankings on Warcraft Logs.</div>`;
   else if (m.status === "error") body = `<div class="status error">${esc(m.error)}</div>`;
-  else if (m.status === "waiting") body = `<div class="status">Hourly API limit reached - looks up automatically at ${new Date(m.retryAt*1000).toLocaleTimeString()}</div>`;
+  else if (m.status === "waiting") {
+    const at = new Date(m.retryAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    body = `<div class="status">${m.why === "busy" ? "Warcraft Logs asked to slow down - tries again" : "Warcraft Logs' hourly lookup limit is used up - looks them up"} automatically at ${at}</div>`;
+  }
   else body = `<div class="status loading">${m.status === "loading" ? "Looking up..." : "Waiting..."}</div>`;
   const group = i === 0 && all.length > 1 ? `<span class="groupTag">Group of ${all.length}</span>` : "";
   const mark = MARKS[m.mark] ? `<span class="markTag ${m.mark}" title="Your mark in My players (WoW)"><span class="dot" aria-hidden="true"></span>${MARKS[m.mark]}</span>` : "";
@@ -464,8 +489,15 @@ function showRate(r) {
   const box = document.getElementById("rate");
   box.hidden = !r.limitPerHour;
   if (!r.limitPerHour) return;
-  const used = Math.round(r.pointsSpentThisHour || 0), limit = r.limitPerHour, frac = Math.min(1, used / limit);
-  document.getElementById("rateText").textContent = `${used}/${limit}`;
+  // Two hourly meters: all points, and database points (rankings) - the smaller one runs out first.
+  const used = Math.round(r.pointsSpentThisHour || 0), limit = r.limitPerHour;
+  const dbUsed = Math.round(r.databasePointsSpentThisHour || 0), dbLimit = r.databaseLimitPerHour;
+  const frac = Math.min(1, Math.max(used / limit, dbLimit ? dbUsed / dbLimit : 0));
+  document.getElementById("rateText").textContent = dbLimit
+    ? `Lookups ${dbUsed}/${dbLimit}` : `API ${used}/${limit}`;
+  box.title = (dbLimit ? `Warcraft Logs ranking points used this hour: ${dbUsed} of ${dbLimit}. ` : "")
+    + `All API points: ${used} of ${limit}.`
+    + (r.playersLeft != null ? ` About ${r.playersLeft} more players can be looked up before the hour resets.` : "");
   const meter = document.getElementById("meter");
   meter.firstElementChild.style.width = `${Math.round(frac * 100)}%`;
   meter.className = "meter" + (frac >= 0.9 ? " full" : frac >= 0.7 ? " warn" : "");

@@ -1,10 +1,13 @@
 """Looks up applicants on Warcraft Logs: their best run in the listed dungeon.
 
-Each new player costs one request: ~1.3 API points per number fetched (DPS, HPS). Which numbers
-each role gets is a setting (by default healers HPS, everyone else DPS). Dungeons also fetch the
+Each new player costs one request: ~1.3 API points per number fetched (DPS, HPS, Boss DPS =
+damage to bosses). Which numbers each role gets is a setting (by default healers HPS, everyone
+else DPS). Dungeons also fetch the
 score list: DPS and HPS rankings only hold logged runs, the score list has every run.
-Checking the remaining points also costs 1 point, so that is done rarely and spending is
-counted locally in between.
+Warcraft Logs has two hourly meters: all points (e.g. 1000) and database points (e.g. 250), the
+part spent on rankings. Rankings are refused once database points run out, so that's the one that
+limits lookups. Every lookup reads both meters in the same request (free); in between, spending is
+counted locally.
 """
 import json
 import os
@@ -23,8 +26,11 @@ def set_keep_days(days):
     PLAYER_TTL = max(1, int(days)) * 24 * 60 * 60
 RATE_CHECK_EVERY = 600    # seconds between checks of the remaining points (each check costs 1)
 POINTS_RESERVE = 15       # leave this much of the hourly limit unused
+DB_RESERVE = 2            # and this much of the database points
 LOOKUP_COST = 1.1         # measured: ~1 point per player lookup
 RAID_COST = 5.0           # measured: ~5 points per player and number for a whole raid
+# Database points per ranking; replaced by what Warcraft Logs reports for each lookup.
+DB_COST = {"dungeon": 1.0, "raid": 5.0}
 TIMED_MEDALS = {"gold", "silver", "bronze"}
 CACHE_VERSION = 3         # bump when the stored run data changes meaning
 SCORE = "playerscore"     # the ranking that also lists runs nobody logged
@@ -44,7 +50,7 @@ def raid_target(encounter_id):
 
 
 def ranks_query(metrics, encounter_id=0):
-    """One request for all the numbers wanted, e.g. ["dps", "hps"] (each costs about the same)."""
+    """One request for all the numbers wanted, e.g. ["dps", "hps", "bossdps"] (each costs about the same)."""
     raid = raid_target(encounter_id)
     if raid:
         fields = "\n    ".join(f"{m}: zoneRankings(zoneID: {raid[0]}, difficulty: {raid[1]}, metric: {m})"
@@ -59,6 +65,7 @@ def ranks_query(metrics, encounter_id=0):
     hidden
     {fields}
   }} }}
+  rateLimitData {{ {wcl.RATE_FIELDS} currentRequest }}
 }}"""
 
 
@@ -70,32 +77,32 @@ def character_url(region, realm_slug, name, zone_id=None, encounter_id=None):
 
 
 def report_url(code, fight_id, metric="dps"):
-    kind = "healing" if metric == "hps" else "damage-done"
+    kind = "healing" if metric == "hps" else "damage-done"  # Boss DPS opens Damage Done too
     return f"https://www.warcraftlogs.com/reports/{code}#fight={fight_id}&type={kind}"
 
 
-# Which numbers to fetch per role (the window's "Look up DPS/HPS for" setting).
+# Which numbers to fetch per role (the window's "Look up DPS/HPS/Boss DPS for" setting).
 METRICS = {"TANK": ["dps"], "HEALER": ["hps"], "DAMAGER": ["dps"]}
+ALL_METRICS = ("dps", "hps", "bossdps")  # bossdps = damage to bosses only, with its own percentile
 
 
 def set_metrics(by_role):
     for role in METRICS:
-        wanted = [m for m in ("dps", "hps") if m in (by_role.get(role) or [])]
-        METRICS[role] = wanted or (["hps"] if role == "HEALER" else ["dps"])  # never nothing
+        # Nothing ticked = that role isn't looked up at all (saves Warcraft Logs points).
+        METRICS[role] = [m for m in ALL_METRICS if m in (by_role.get(role) or [])]
 
 
 def metrics_for(member):
     """The numbers to fetch for this member, the main one first: healing for healers when
-    it's wanted, damage for everyone else."""
-    wanted = METRICS.get(member.role) or ["dps"]
-    if member.role == "HEALER":
-        return sorted(wanted, key=lambda m: m != "hps")
-    return sorted(wanted, key=lambda m: m != "dps")
+    it's wanted, damage for everyone else, then damage to bosses. Empty = not looked up."""
+    wanted = METRICS.get(member.role, ["dps"])
+    order = ["hps", "dps", "bossdps"] if member.role == "HEALER" else ["dps", "bossdps", "hps"]
+    return sorted(wanted, key=order.index)
 
 
 def cache_key(member, region, encounter_id, metric="dps"):
     # Healing rankings are stored apart from damage rankings (DPS keys keep the old form).
-    suffix = {"hps": "-hps", SCORE: "-score"}.get(metric, "")
+    suffix = {"hps": "-hps", "bossdps": "-bossdps", SCORE: "-score"}.get(metric, "")
     return f"{member.key}-{region}-{encounter_id}{suffix}"
 
 
@@ -127,45 +134,70 @@ class Lookup:
         self.rate = {}
         self._rate_checked = 0
         self._spent_since_check = 0
+        self._db_since_check = 0
+        self._rate_lock = threading.Lock()
 
     def refresh_rate(self, force=False):
         """Asks Warcraft Logs how many points are left (costs 1 point), at most every 10 minutes."""
         if force or time.time() - self._rate_checked >= RATE_CHECK_EVERY:
-            self.rate = self.client.rate_limit()
+            self._set_rate(self.client.rate_limit())
+        return self.estimated_rate()
+
+    def _set_rate(self, rate):
+        with self._rate_lock:
+            self.rate = {k: v for k, v in rate.items() if k != "currentRequest"}
             self._rate_checked = time.time()
             self._spent_since_check = 0
-        return self.estimated_rate()
+            self._db_since_check = 0
 
     def estimated_rate(self):
         """The last known numbers plus what we've spent since, without asking (free)."""
-        rate = dict(self.rate)
-        if rate:
-            left = (rate.get("pointsResetIn") or 0) - (time.time() - self._rate_checked)
-            if left > 0:
-                rate["pointsSpentThisHour"] = (rate.get("pointsSpentThisHour") or 0) + self._spent_since_check
-                rate["pointsResetIn"] = left
-            else:  # the hour has reset since the last check: only what we spent since counts
-                rate["pointsSpentThisHour"] = self._spent_since_check
-                rate["pointsResetIn"] = None  # unknown until the next check
-        return rate
+        with self._rate_lock:
+            rate = dict(self.rate)
+            if rate:
+                left = (rate.get("pointsResetIn") or 0) - (time.time() - self._rate_checked)
+                if left > 0:
+                    rate["pointsSpentThisHour"] = (rate.get("pointsSpentThisHour") or 0) + self._spent_since_check
+                    rate["databasePointsSpentThisHour"] = (rate.get("databasePointsSpentThisHour") or 0) + self._db_since_check
+                    rate["pointsResetIn"] = left
+                else:  # the hour has reset since the last check: only what we spent since counts
+                    rate["pointsSpentThisHour"] = self._spent_since_check
+                    rate["databasePointsSpentThisHour"] = self._db_since_check
+                    rate["pointsResetIn"] = None  # unknown until the next check
+            return rate
 
-    def _budget_ok(self, cost=LOOKUP_COST):
+    def _room(self):
+        """(points left, database points left) this hour, after the reserves."""
         rate = self.estimated_rate()
-        reset_in = rate.get("pointsResetIn")
-        if rate and (reset_in is None or reset_in <= 0):
+        if rate and rate.get("pointsResetIn") is None:
             rate = self.refresh_rate(force=True)  # the hour has reset: ask for the new numbers
-        spent, limit = rate.get("pointsSpentThisHour") or 0, rate.get("limitPerHour") or 720
-        if spent + cost > limit - POINTS_RESERVE and time.time() - self._rate_checked > 60:
-            # Our count says we're near the limit; ask (at most once a minute) to be sure.
-            rate = self.refresh_rate(force=True)
-            spent, limit = rate.get("pointsSpentThisHour") or 0, rate.get("limitPerHour") or 720
-        return spent + cost <= limit - POINTS_RESERVE
+        points = (rate.get("limitPerHour") or 720) - POINTS_RESERVE - (rate.get("pointsSpentThisHour") or 0)
+        db_limit = rate.get("databaseLimitPerHour")
+        db = float("inf") if db_limit is None else db_limit - DB_RESERVE - (rate.get("databasePointsSpentThisHour") or 0)
+        return points, db
+
+    def _fit(self, missing, raid, main):
+        """The metrics we can afford to fetch now: all of them, or else the main number and the score
+        list (the extra numbers are left out and fetched next time). Raises BudgetError if not even
+        those fit."""
+        cost, db_cost = (RAID_COST, DB_COST["raid"]) if raid else (LOOKUP_COST, DB_COST["dungeon"])
+        for attempt in range(2):
+            points, db = self._room()
+            for wanted in (missing, [m for m in missing if m in (main, SCORE)]):
+                if wanted and cost * len(wanted) <= points and db_cost * len(wanted) <= db:
+                    return wanted
+            if attempt == 0 and time.time() - self._rate_checked > 60:
+                self.refresh_rate(force=True)  # our count says no; ask (at most once a minute) to be sure
+            else:
+                break
+        raise BudgetError("database" if db < db_cost else "points")
 
     def player_runs(self, member, region, encounter_id):
         """{metric: ranks} for the numbers wanted for this member; saved ones are free, the
         missing ones are fetched together in one request."""
         runs, missing = {}, []
-        for metric in metrics_for(member) + ([] if raid_target(encounter_id) else [SCORE]):
+        raid = bool(raid_target(encounter_id))
+        for metric in metrics_for(member) + ([] if raid else [SCORE]):
             cached = self.cache.players.get(cache_key(member, region, encounter_id, metric))
             if cached and time.time() - cached["at"] < PLAYER_TTL:
                 runs[metric] = cached["ranks"]
@@ -173,17 +205,33 @@ class Lookup:
                 missing.append(metric)
         if not missing:
             return runs
-        cost = (RAID_COST if raid_target(encounter_id) else LOOKUP_COST) * len(missing)
-        if not self._budget_ok(cost):
-            raise BudgetError()
+        missing = self._fit(missing, raid, metrics_for(member)[0])
         variables = {"name": member.name, "realm": member.realm_slug, "region": region}
-        if not raid_target(encounter_id):
+        if not raid:
             variables["enc"] = encounter_id
-        data = self.client.query(ranks_query(missing, encounter_id), variables)
-        self._spent_since_check += cost
+        try:
+            data = self.client.query(ranks_query(missing, encounter_id), variables)
+        except wcl.DatabaseLimit:
+            try:
+                self.refresh_rate(force=True)  # the limit and reset time (normal points still work)
+            except wcl.WCLError:
+                pass
+            with self._rate_lock:  # Warcraft Logs says it's used up, whatever our count says
+                self.rate["databasePointsSpentThisHour"] = self.rate.get("databaseLimitPerHour") or 0
+                self._db_since_check = 0
+            raise BudgetError("database")
+        rate = data.get("rateLimitData") or {}
+        if rate:
+            used = (rate.get("currentRequest") or {}).get("database")
+            if used:  # learn what one ranking really costs
+                DB_COST["raid" if raid else "dungeon"] = used / len(missing)
+            self._set_rate(rate)
+        else:
+            self._spent_since_check += (RAID_COST if raid else LOOKUP_COST) * len(missing)
+            self._db_since_check += DB_COST["raid" if raid else "dungeon"] * len(missing)
         character = data["characterData"]["character"]
         for metric in missing:
-            if raid_target(encounter_id):  # a raid: the whole summary is kept
+            if raid:  # a raid: the whole summary is kept
                 ranks = ((character or {}).get(metric) or None) if character else None
             else:
                 ranks = ((character or {}).get(metric) or {}).get("ranks", []) if character else None
@@ -192,20 +240,27 @@ class Lookup:
             runs[metric] = ranks
         return runs
 
+    def players_left(self, raid=False):
+        """About how many more players can be looked up this hour (for the window)."""
+        points, db = self._room()
+        per = 2 if raid else 3  # a typical player: main number + score list (+ one extra)
+        cost, db_cost = (RAID_COST, DB_COST["raid"]) if raid else (LOOKUP_COST, DB_COST["dungeon"])
+        return max(0, int(min(points / (cost * per), db / (db_cost * per))))
+
     def forget(self, member, region, encounter_id):
         """Drops a player's saved lookup, so the next one asks Warcraft Logs again."""
-        for metric in ("dps", "hps", SCORE):
+        for metric in ALL_METRICS + (SCORE,):
             self.cache.players.pop(cache_key(member, region, encounter_id, metric), None)
 
     def looked_up_at(self, member, region, encounter_id):
         """When this player's runs were fetched from Warcraft Logs (the oldest of their numbers)."""
         times = [(self.cache.players.get(cache_key(member, region, encounter_id, m)) or {}).get("at")
-                 for m in metrics_for(member)]
+                 for m in metrics_for(member) or ["dps"]]
         return min((t for t in times if t), default=None)
 
     def is_hidden(self, member, region, encounter_id):
         """True if the player hid their rankings on Warcraft Logs (from the last lookup)."""
-        main = metrics_for(member)[0]
+        main = (metrics_for(member) or ["dps"])[0]
         return bool((self.cache.players.get(cache_key(member, region, encounter_id, main)) or {}).get("hidden"))
 
     def look_up(self, member, region, encounter_id):
@@ -217,6 +272,12 @@ class Lookup:
         if self.is_hidden(member, region, encounter_id):
             return {"hidden": True}
         metrics = metrics_for(member)
+        found = self._look_up(member, region, encounter_id, runs, metrics)
+        if found and any(m not in runs for m in metrics):
+            found["partial"] = True  # an extra number was left out (hourly limit): fetch it after the reset
+        return found
+
+    def _look_up(self, member, region, encounter_id, runs, metrics):
         if raid_target(encounter_id):
             return raid_summary(member, runs, metrics, region, encounter_id)
         metric = metrics[0]
@@ -226,6 +287,20 @@ class Lookup:
         if not r and not top:
             return None
         result = {"featured": None, "reason": ""}
+        over = over_run(ranks, runs.get(SCORE), top or r, member.role)
+        if over:
+            logged = over.get("report", {}).get("fightID") is not None and over in ranks
+            result["over"] = {
+                "key": level(over),
+                "duration": over.get("duration"),
+                "spec": spec_display(over.get("spec")),
+                "date": over.get("startTime"),
+                "amount": over.get("amount") if logged else None,
+                "percent": percent(over) if logged else None,
+                "metric": metric,
+                "url": report_url(over["report"]["code"], over["report"]["fightID"], metric) if logged else None,
+                "reason": dated("highest over time", over),
+            }
         if top:
             result["top"] = {
                 "key": level(top),
@@ -251,13 +326,13 @@ class Lookup:
                 "key": r.get("bracketData"),
                 "duration": r.get("duration"),
                 "timed": r.get("medal") in TIMED_MEDALS,
-                "dps": r.get("amount"),  # healing per second when metric is "hps"
+                "dps": r.get("amount"),  # healing per second when metric is "hps", boss damage for "bossdps"
                 "metric": metric,
                 "percent": percent(r),
                 "spec": spec_display(r.get("spec")),
                 "date": r.get("startTime"),
                 "url": report_url(r["report"]["code"], r["report"]["fightID"], metric),
-                "also": also,  # the other numbers asked for, e.g. HPS of a tank's run
+                "also": also,  # the other numbers asked for, e.g. HPS or Boss DPS of the same run
             },
             "reason": reason,
         }
@@ -365,6 +440,22 @@ def higher_run(score_ranks, logged, role=""):
     return None
 
 
+def over_run(logged, score_ranks, shown, role=""):
+    """Their highest run when it was over time and above the run shown (a +21 that ran out of
+    time above their timed +20), in the role they applied as when they have runs in it. The
+    logged one when there's a log of it (it has their numbers). Else None."""
+    runs = [r for r in (logged or []) + (score_ranks or []) if level(r)]
+    runs = _in_role(runs, role) or runs
+    over = [r for r in runs if r.get("medal") not in TIMED_MEDALS
+            and level(r) > (level(shown) if shown else 0)]
+    if not over:
+        return None
+    top = max(map(level, over))
+    with_log = [r for r in over if level(r) == top and r in (logged or [])]
+    return max(with_log, key=lambda r: percent(r) or 0) if with_log else \
+        max((r for r in over if level(r) == top), key=lambda r: r.get("startTime") or 0)
+
+
 def pick_featured(ranks, applied_role=""):
     """The run to show: their highest timed run, played in the role they applied as when they have
     one (a healing run says little about their DPS)."""
@@ -392,4 +483,7 @@ def _pick(ranks):
 
 
 class BudgetError(Exception):
-    """Not enough of the hourly API limit left."""
+    """Not enough of the hourly API limit left. args[0]: "database" (rankings) or "points"."""
+    @property
+    def kind(self):
+        return self.args[0] if self.args else "points"

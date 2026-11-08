@@ -27,14 +27,21 @@ def build(listing, members, results, result_key, request=None, copy_until=0):
     records = []
     pending = 0
     not_yet = []  # "who:waiting" (hourly API limit) / "who:error" (lookup failed)
+    retry_at = 0  # when the waiting ones are looked up
+    off = []  # "off:who" = their role isn't looked up (Settings)
     for m in members:
         result = results.get(result_key(m, listing["encounterId"], listing.get("key")))
         who = _clean(f"{m.name}-{m.realm_slug}")
+        if (result or {}).get("status") == "off":
+            off.append(f"off:{who}")  # older addons skip it (it isn't "who:status")
+            continue
         if not result or result.get("status") not in ("done", "nodata", "hidden"):
             if not result or result.get("status") in ("pending", "loading"):
                 pending += 1
             elif result["status"] in ("waiting", "error"):
                 not_yet.append(f"{who}:{result['status']}")
+                if result.get("retryAt"):
+                    retry_at = max(retry_at, int(result["retryAt"]))
             continue
         if result["status"] == "hidden":
             records.append(f"{who},0,hidden")  # older addons read this as "no logs"
@@ -54,19 +61,30 @@ def build(listing, members, results, result_key, request=None, copy_until=0):
             _clean(result.get("reason", "").replace(", ", " - ")),  # "highest timed - 3 Oct 2026"
             _clean(run.get("spec") or (top or {}).get("spec") or ""),
             str(spec_mismatch(m.spec, run.get("spec") or (top or {}).get("spec"))),
-            "hps" if run.get("metric") == "hps" else "",  # older addons ignore this field
+            run.get("metric") if run.get("metric") in ("hps", "bossdps") else "",  # older addons ignore this field
             str(int(result.get("lookedUpAt") or 0)),  # when it was fetched from Warcraft Logs
         ]
-        for also in (run.get("also") or [])[:1]:  # a second number, e.g. a tank's HPS
-            fields += [also["metric"], _num(also.get("amount")), _num(also.get("percent"), 1)]
+        also = run.get("also") or []
+        for a in also[:1]:  # a second number, e.g. a tank's HPS
+            fields += [a["metric"], _num(a.get("amount")), _num(a.get("percent"), 1)]
         if top:  # their highest timed run has no log; older addons stop reading at field 18
             fields += [""] * (18 - len(fields))
             fields += [str(top["key"]), _num((top.get("duration") or 0) / 1000),
                        _clean(top.get("reason", "").replace(", ", " - "))]
+        for a in also[1:2]:  # a third number (fields 22-24), e.g. a DPS player's Boss DPS next to HPS
+            fields += [""] * (21 - len(fields))
+            fields += [a["metric"], _num(a.get("amount")), _num(a.get("percent"), 1)]
+        over = result.get("over")
+        if over:  # fields 25-29: their highest run was over time, above the run shown (red line)
+            fields += [""] * (24 - len(fields))
+            fields += [str(over["key"]), _num((over.get("duration") or 0) / 1000), _num(over.get("amount")),
+                       _num(over.get("percent"), 1), _clean(over.get("reason", "").replace(", ", " - "))]
         records.append(",".join(fields))
-    if pending or not_yet:
+    if pending or not_yet or off:
         # Still being looked up; older addons read only the count.
-        records.append(",".join(["!pending", str(pending), str(int(copy_until or 0))] + not_yet))
+        # "retry:<unix time>" = when the waiting ones are looked up (older addons skip it).
+        records.append(",".join(["!pending", str(pending), str(int(copy_until or 0))] + not_yet
+                                + ([f"retry:{retry_at}"] if retry_at else []) + off))
     if request:
         records.append(f"!req,{_clean(request)}")  # which paste request this answers
     records.append(f"!keep,{lookup.PLAYER_TTL // 86400}")  # days the addon keeps these results

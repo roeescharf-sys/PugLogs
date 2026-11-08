@@ -14,7 +14,10 @@ ENV_FILE = os.path.expanduser("~/.config/puglogs/wcl.env")
 TOKEN_URL = "https://www.warcraftlogs.com/oauth/token"
 API_URL = "https://www.warcraftlogs.com/api/v2/client"
 
-RATE_LIMIT_QUERY = "{ rateLimitData { limitPerHour pointsSpentThisHour pointsResetIn } }"
+# Two meters, both reset hourly: all points (limitPerHour), and database points - the part spent on
+# rankings (databaseLimitPerHour, e.g. 250 of 1000; when it's used up rankings are refused).
+RATE_FIELDS = "limitPerHour pointsSpentThisHour pointsResetIn databaseLimitPerHour databasePointsSpentThisHour"
+RATE_LIMIT_QUERY = "{ rateLimitData { %s } }" % RATE_FIELDS
 
 
 TEMPLATE = """# PugLogs settings. Keep this file private.
@@ -91,6 +94,11 @@ class RateLimited(WCLError):
     """Warcraft Logs refused the request because too many were sent (HTTP 429)."""
 
 
+class DatabaseLimit(WCLError):
+    """Warcraft Logs' "no database points remaining": a limit of its own, reached while the
+    hourly points meter still has room. Lookups have to wait for the hourly reset."""
+
+
 class ServiceUnavailable(WCLError):
     """Warcraft Logs is down, overloaded or unreachable - not a problem with the API client."""
 
@@ -159,6 +167,8 @@ class Client:
                     continue
                 raise ServiceUnavailable(f"Can't reach Warcraft Logs ({getattr(e, 'reason', e)})") from None
             if data.get("errors"):
+                if "no database points" in json.dumps(data["errors"]):
+                    raise DatabaseLimit("Warcraft Logs' hourly ranking limit is used up - waiting for the reset")
                 raise WCLError(json.dumps(data["errors"])[:500])
             return data["data"]
         raise WCLError("Gave up after retries")
